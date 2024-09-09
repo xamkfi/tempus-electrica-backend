@@ -17,8 +17,28 @@ namespace ApplicationLayer.Services
             _electricityRepository = electricityRepository;
             _logger = logger;
         }
-
-        public async Task<(decimal totalSpotPrice, decimal totalFixedPrice, string cheaperOption, decimal totalConsumption, decimal priceDifference, decimal equivalentFixedPrice, List<MonthlyConsumptionData> monthlyData, List<WeeklyConsumptionData> weeklyData, List<DailyConsumptionData> dailyData, DateTime startDate, DateTime endDate)> CalculateTotalConsumptionPricesAsync(string csvFilePath, decimal? fixedPrice)
+        public enum PriceOption
+        {
+            FixedPrice,
+            SpotPrice,
+            Error
+        }
+            public async Task<(
+            decimal totalSpotPrice,
+            decimal totalFixedPrice,
+            string cheaperOption,
+            decimal totalConsumption,
+            decimal priceDifference,
+            decimal equivalentFixedPrice,
+            List<MonthlyConsumptionData> monthlyData,
+            List<WeeklyConsumptionData> weeklyData,
+            List<DailyConsumptionData> dailyData,
+            DateTime startDate,
+            DateTime endDate
+        )> CalculateTotalConsumptionPricesAsync(
+            string csvFilePath,
+            decimal? fixedPrice
+        )
         {
             _logger.LogInformation("Start calculating total consumption prices.");
 
@@ -104,18 +124,18 @@ namespace ApplicationLayer.Services
                 var cheaperOption = DetermineCheaperOption(totalSpotPrice, totalFixedPrice, fixedPrice);
 
                 // Calculate the price difference based on the cheaper option
-                decimal priceDifference = Math.Abs(totalSpotPrice - totalFixedPrice);
+                decimal priceDifference = Math.Round((totalSpotPrice - totalFixedPrice), 2);
 
                 // Calculate the equivalent fixed price if spot price is cheaper
                 decimal equivalentFixedPrice = 0;
-                if (cheaperOption == "Spot Price")
+                if (cheaperOption == PriceOption.SpotPrice)
                 {
                     equivalentFixedPrice = totalSpotPrice / totalConsumption * 100;
                 }
 
                 _logger.LogInformation("Total spot price: {totalSpotPrice}, Total fixed price: {totalFixedPrice}, Total consumption: {totalConsumption}, Cheaper option: {cheaperOption}, Price difference: {priceDifference}, Equivalent fixed price: {equivalentFixedPrice}", totalSpotPrice, totalFixedPrice, totalConsumption, cheaperOption, priceDifference, equivalentFixedPrice);
 
-                return (totalSpotPrice / 100, totalFixedPrice / 100, cheaperOption, totalConsumption, priceDifference / 100,
+                return (totalSpotPrice / 100, totalFixedPrice / 100, cheaperOption.ToString(), totalConsumption, priceDifference / 100,
                     equivalentFixedPrice / 100, FormatMonthlyData(monthlyData), FormatWeeklyData(weeklyData), FormatDailyData(dailyData), startDate, endDate);
 
             }
@@ -204,24 +224,24 @@ namespace ApplicationLayer.Services
             return consumption * price.Price;
         }
 
-        private string DetermineCheaperOption(decimal totalSpotPrice, decimal totalFixedPrice, decimal? fixedPrice)
+        private PriceOption DetermineCheaperOption(decimal totalSpotPrice, decimal totalFixedPrice, decimal? fixedPrice)
         {
             try
             {
                 if (totalFixedPrice == 0 || totalSpotPrice == 0)
                 {
                     _logger.LogWarning("Either total fixed price or total spot price is zero, cannot determine the cheaper option.");
-                    return "Error calculating data, or no data were found";
+                    return PriceOption.Error;
                 }
 
-                var cheaperOption = fixedPrice.HasValue && totalFixedPrice < totalSpotPrice ? "Fixed price" : "Spot Price";
+                var cheaperOption = fixedPrice.HasValue && totalFixedPrice < totalSpotPrice ? PriceOption.FixedPrice : PriceOption.SpotPrice;
                 _logger.LogInformation("Cheaper option determined: {cheaperOption}", cheaperOption);
                 return cheaperOption;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error determining the cheaper option.");
-                return "Error calculating data, or no data were found";
+                return PriceOption.Error;
             }
         }
 
