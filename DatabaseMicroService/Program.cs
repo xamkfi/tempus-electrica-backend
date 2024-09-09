@@ -55,6 +55,7 @@ public class Program
         builder.Services.AddScoped<IDateRangeDataService, DateRangeDataService>();
         builder.Services.AddScoped<ICalculateFingridConsumptionPrice, CalculateFinGridConsumptionPriceService>();
         builder.Services.AddHostedService<ElectricityPriceFetchingBackgroundService>();
+        builder.Services.AddScoped<IElectricityPriceService, ElectricityPriceService>();
         builder.Services.AddMemoryCache();
 
         // Health checks setup

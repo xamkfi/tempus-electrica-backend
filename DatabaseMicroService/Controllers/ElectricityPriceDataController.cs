@@ -4,6 +4,8 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Diagnostics;
 using System.Text.Json;
+using System.Text.Json.Serialization;
+
 
 namespace DatabaseMicroService.Controllers
 {
@@ -15,16 +17,20 @@ namespace DatabaseMicroService.Controllers
         private readonly ILogger<ElectricityPriceDataController> _logger;
         private readonly ISaveHistoryDataService _saveHistoryDataService;
         private readonly IDateRangeDataService _dateRangeDataService;
+        private readonly IElectricityPriceService _electricityService;
         private readonly ICalculateFingridConsumptionPrice _calculateFinGridConsumptionPrice;
 
         public ElectricityPriceDataController(
             ILogger<ElectricityPriceDataController> logger,
             ISaveHistoryDataService saveHistoryDataService,
-            IDateRangeDataService dateRangeDataService, ICalculateFingridConsumptionPrice calculateFingridConsumptionPrice)
+            IDateRangeDataService dateRangeDataService,
+            IElectricityPriceService electricityService,
+            ICalculateFingridConsumptionPrice calculateFingridConsumptionPrice)
         {
             _logger = logger;
             _saveHistoryDataService = saveHistoryDataService;
             _dateRangeDataService = dateRangeDataService;
+            _electricityService = electricityService;
             _calculateFinGridConsumptionPrice = calculateFingridConsumptionPrice;
         }
 
@@ -157,6 +163,59 @@ namespace DatabaseMicroService.Controllers
             _logger.LogInformation("Request received: {Method} {Path}", HttpContext.Request.Method, HttpContext.Request.Path);
             _logger.LogInformation("Query Parameters: {Query}", HttpContext.Request.QueryString);
             _logger.LogInformation("Headers: {Headers}", JsonSerializer.Serialize(HttpContext.Request.Headers.ToDictionary(h => h.Key, h => h.Value.ToString())));
+        }
+
+
+        [HttpPost("CalculatePriceAndConsumption")]
+        public async Task<ActionResult> GetElectricityPricesData([FromQuery] CombinedRequestDtoIn request)
+        {
+            // Start a stopwatch to measure response time
+            var stopwatch = Stopwatch.StartNew();
+
+            _logger.LogInformation("Request received: {Method} {Path}", HttpContext.Request.Method, HttpContext.Request.Path);
+            _logger.LogInformation("Query Parameters: {Query}", HttpContext.Request.QueryString);
+            _logger.LogInformation("Headers: {Headers}", JsonSerializer.Serialize(HttpContext.Request.Headers.ToDictionary(h => h.Key, h => h.Value.ToString())));
+            _logger.LogInformation("Request Body: {Request}", JsonSerializer.Serialize(request));
+
+            try
+            {
+                var (totalFixedPriceCost, totalSpotPriceCost, costDifference, cheaperOption, totalConsumption, averageHourlySpotPrice, monthlyData) =
+                    await _electricityService.GetElectricityPriceDataAsync(request);
+
+                var calculationYears = $"{request.Year - 1} - {request.Year}";
+
+                var response = new
+                {
+                    TotalFixedPriceCost = totalFixedPriceCost,
+                    TotalSpotPriceCost = totalSpotPriceCost,
+                    TotalDirectiveConsumption = totalConsumption,
+                    CheaperOption = cheaperOption,
+                    CostDifference = costDifference,
+                    AverageHourlySpotPrice = averageHourlySpotPrice,
+                    MonthlyData = monthlyData,
+                    CalculationYears = calculationYears
+                };
+
+                var options = new JsonSerializerOptions
+                {
+                    NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals,
+                    WriteIndented = true
+                };
+
+                var jsonResponse = JsonSerializer.Serialize(response, options);
+
+                // Stop the stopwatch and log the response time and status code
+                stopwatch.Stop();
+                _logger.LogInformation("Response Time: {Time} ms", stopwatch.ElapsedMilliseconds);
+                _logger.LogInformation("Response Status Code: {StatusCode}", StatusCodes.Status200OK);
+
+                return Ok(jsonResponse);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "An error occurred while calculating price and consumption.");
+                return StatusCode(StatusCodes.Status500InternalServerError, "An error occurred while calculating price and consumption.");
+            }
         }
     }
 }
