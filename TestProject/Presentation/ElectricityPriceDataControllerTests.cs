@@ -16,17 +16,20 @@ namespace TestProject.Presentation
         private readonly Mock<IDateRangeDataService> _dateRangeDataServiceMock;
         private readonly ElectricityPriceDataController _controller;
         private readonly DefaultHttpContext _httpContext;
-        
+        private readonly Mock<ICalculateFingridConsumptionPrice> _calculateFinGridConsumptionPriceMock;
 
         public ElectricityPriceDataControllerTests()
         {
             _loggerMock = new Mock<ILogger<ElectricityPriceDataController>>();
             _saveHistoryDataServiceMock = new Mock<ISaveHistoryDataService>();
             _dateRangeDataServiceMock = new Mock<IDateRangeDataService>();
+            _calculateFinGridConsumptionPriceMock = new Mock<ICalculateFingridConsumptionPrice>();  
+            
             _controller = new ElectricityPriceDataController(
                 _loggerMock.Object,
                 _saveHistoryDataServiceMock.Object,
-                _dateRangeDataServiceMock.Object
+                _dateRangeDataServiceMock.Object,
+                _calculateFinGridConsumptionPriceMock.Object
             );
 
             _httpContext = new DefaultHttpContext();
@@ -40,15 +43,16 @@ namespace TestProject.Presentation
         [Fact]
         public async Task GetPricesForPeriod_ExceptionThrown_ReturnsInternalServerError()
         {
-            //Arrange
-            var request = new GetPricesForPeriodDto { StartDate = DateTime.Now.AddDays(-1), EndDate = DateTime.Now };
-            _dateRangeDataServiceMock.Setup(service => service.GetPricesForPeriodAsync(request.StartDate, request.EndDate))
+          
+            DateTime? startDate = DateTime.Now.AddDays(-1);
+            DateTime? endDate = DateTime.Now;
+            _dateRangeDataServiceMock.Setup(service => service.GetPricesForPeriodAsync(startDate.Value, endDate.Value))
                 .ThrowsAsync(new Exception());
 
-            //Act
-            var result = await _controller.GetPricesForPeriod(request);
+            
+            var result = await _controller.GetPricesForPeriod(startDate, endDate);
 
-            //Assert
+         
             var statusCodeResult = Assert.IsType<ObjectResult>(result);
             Assert.Equal(StatusCodes.Status500InternalServerError, statusCodeResult.StatusCode);
             Assert.Equal("Error getting electricity prices for the period.", statusCodeResult.Value);

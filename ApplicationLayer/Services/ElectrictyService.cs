@@ -34,7 +34,7 @@ namespace ApplicationLayer.Services
 
                 foreach (var priceInfo in electricityPriceDataDtoIn.Prices)
                 {
-                    if (priceInfo.StartDate == DateTime.MinValue || priceInfo.EndDate == DateTime.MinValue || priceInfo.Price <= 0)
+                    if (priceInfo.StartDate == DateTime.MinValue || priceInfo.EndDate == DateTime.MinValue)
                     {
                         _logger.LogWarning("Invalid price data detected. Skipping entry with StartDate: {StartDate}, EndDate: {EndDate}, Price: {Price}", priceInfo.StartDate, priceInfo.EndDate, priceInfo.Price);
                         continue;
