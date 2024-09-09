@@ -88,7 +88,7 @@ namespace TestProject.Application
 
             Assert.Equal(55.8M, totalSpotPrice);  
             Assert.Equal(31.5M, totalFixedPrice); 
-            Assert.Equal("Fixed price", cheaperOption);
+            Assert.Equal("FixedPrice", cheaperOption);
             Assert.Equal(420.0M, totalConsumption);
             Assert.Equal(24.3M, priceDifference);
             Assert.Single(monthlyData);
