@@ -53,6 +53,7 @@ public class Program
         builder.Services.AddScoped<ISaveHistoryDataService, SaveHistoryDataService>();
         builder.Services.AddScoped<IDateRangeDataService, DateRangeDataService>();
         builder.Services.AddHostedService<ElectricityPriceFetchingBackgroundService>();
+        builder.Services.AddScoped<IElectricityPriceService, ElectricityPriceService>();
         builder.Services.AddMemoryCache();
 
         // Health checks setup
