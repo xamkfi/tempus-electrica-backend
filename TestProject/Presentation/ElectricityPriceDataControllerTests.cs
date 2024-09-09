@@ -29,7 +29,7 @@ namespace TestProject.Presentation
                 _loggerMock.Object,
                 _saveHistoryDataServiceMock.Object,
                 _dateRangeDataServiceMock.Object,
-                _priceServiceMock.Object
+                _priceServiceMock.Object,
                 _calculateFinGridConsumptionPriceMock.Object
             );
 
