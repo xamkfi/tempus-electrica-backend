@@ -16,7 +16,7 @@ namespace TestProject.Presentation
         private readonly ElectricityPriceDataController _controller;
         private readonly DefaultHttpContext _httpContext;
         private readonly Mock<IElectricityPriceService> _priceServiceMock;
-        
+        private readonly Mock<ICalculateFingridConsumptionPrice> _calculateFinGridConsumptionPriceMock;
 
         public ElectricityPriceDataControllerTests()
         {
@@ -24,11 +24,13 @@ namespace TestProject.Presentation
             _saveHistoryDataServiceMock = new Mock<ISaveHistoryDataService>();
             _dateRangeDataServiceMock = new Mock<IDateRangeDataService>();
             _priceServiceMock = new Mock<IElectricityPriceService>();
+            _calculateFinGridConsumptionPriceMock = new Mock<ICalculateFingridConsumptionPrice>();  
             _controller = new ElectricityPriceDataController(
                 _loggerMock.Object,
                 _saveHistoryDataServiceMock.Object,
                 _dateRangeDataServiceMock.Object,
-                _priceServiceMock.Object
+                _priceServiceMock.Object,
+                _calculateFinGridConsumptionPriceMock.Object
             );
 
             _httpContext = new DefaultHttpContext();
@@ -47,9 +49,7 @@ namespace TestProject.Presentation
             _dateRangeDataServiceMock.Setup(service => service.GetPricesForPeriodAsync(startDate.Value, endDate.Value))
                 .ThrowsAsync(new Exception());
 
-
             var result = await _controller.GetPricesForPeriod(startDate, endDate);
-
 
             var statusCodeResult = Assert.IsType<ObjectResult>(result);
             Assert.Equal(StatusCodes.Status500InternalServerError, statusCodeResult.StatusCode);

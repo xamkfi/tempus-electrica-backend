@@ -8,6 +8,7 @@ using Infrastructure.Repositories;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi.Models;
 
+
 public class Program
 {
     public static async Task Main(string[] args)
@@ -52,6 +53,7 @@ public class Program
         builder.Services.AddScoped<IElectricityRepository, ElectricityRepository>();
         builder.Services.AddScoped<ISaveHistoryDataService, SaveHistoryDataService>();
         builder.Services.AddScoped<IDateRangeDataService, DateRangeDataService>();
+        builder.Services.AddScoped<ICalculateFingridConsumptionPrice, CalculateFinGridConsumptionPriceService>();
         builder.Services.AddHostedService<ElectricityPriceFetchingBackgroundService>();
         builder.Services.AddScoped<IElectricityPriceService, ElectricityPriceService>();
         builder.Services.AddMemoryCache();
