@@ -1,5 +1,5 @@
 ﻿using System.ComponentModel.DataAnnotations;
-using Application.Dto;
+using ApplicationLayer.Dto;
 using ApplicationLayer.Services;
 using Domain.Entities;
 using Domain.Interfaces;

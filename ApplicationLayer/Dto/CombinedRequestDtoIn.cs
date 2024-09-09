@@ -1,7 +1,7 @@
 ﻿using System.ComponentModel.DataAnnotations;
 using System.Runtime.Serialization;
 
-namespace Application.Dto
+namespace ApplicationLayer.Dto
 {
     public class CombinedRequestDtoIn : IValidatableObject
     {

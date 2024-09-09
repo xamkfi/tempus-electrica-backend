@@ -1,4 +1,4 @@
-﻿using Application.Dto;
+﻿using ApplicationLayer.Dto;
 using static ApplicationLayer.Services.ElectricityPriceService;
 
 namespace ApplicationLayer.Interfaces
