@@ -90,6 +90,11 @@ public class Program
         app.Lifetime.ApplicationStopping.Register(() => logger.LogInformation("Application stopping"));
         app.Lifetime.ApplicationStopped.Register(() => logger.LogInformation("Application stopped"));
 
+        app.UseCors(options => options
+           .AllowAnyOrigin()
+           .AllowAnyMethod()
+           .AllowAnyHeader());
+
         app.UseHttpsRedirection();
      
         app.MapControllers();
