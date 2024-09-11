@@ -217,5 +217,49 @@ namespace DatabaseMicroService.Controllers
                 return StatusCode(StatusCodes.Status500InternalServerError, "An error occurred while calculating price and consumption.");
             }
         }
+        [HttpPost("UploadFinGridConsumptionFileOptimized")]
+        public async Task<IActionResult> UploadFinGridConsumptionFileOptimized(IFormFile file, [FromQuery] decimal? fixedPrice)
+        {
+            if (file == null || file.Length == 0)
+            {
+                _logger.LogWarning("CSV file is not provided or empty.");
+                return BadRequest("CSV file is required.");
+            }
+
+            if (!fixedPrice.HasValue)
+            {
+                _logger.LogWarning("Fixed price is not provided.");
+                return BadRequest("Fixed price is required.");
+            }
+
+            try
+            {
+                
+                var tempFilePath = Path.GetTempFileName();
+                using (var stream = new FileStream(tempFilePath, FileMode.Create))
+                {
+                    await file.CopyToAsync(stream);
+                }
+
+                var result = await _calculateFinGridConsumptionPrice.CalculateOptimizedSpotConsumptionPriceAsync(tempFilePath, fixedPrice);
+                System.IO.File.Delete(tempFilePath);
+
+                return Ok(new
+                {
+                    TotalOptimizedSpotPrice = result.totalOptimizedSpotPrice,
+                    TotalOptimizedConsumption = result.totalOptimizedConsumption,
+                    MonthlyData = result.monthlyData,
+                    WeeklyData = result.weeklyData,
+                    DailyData = result.dailyData,
+                    StartDate = result.startDate,
+                    EndDate = result.endDate
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error processing CSV file.");
+                return StatusCode(StatusCodes.Status500InternalServerError, $"Internal server error: {ex.Message}");
+            }
+        }
     }
 }

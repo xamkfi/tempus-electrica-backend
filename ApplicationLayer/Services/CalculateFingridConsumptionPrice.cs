@@ -322,5 +322,136 @@ namespace ApplicationLayer.Services
         .Select(entry => entry.Value)
         .ToList();
         }
+        public async Task<(
+    decimal totalOptimizedSpotPrice,
+    decimal totalOptimizedConsumption,
+    List<MonthlyConsumptionData> monthlyData,
+    List<WeeklyConsumptionData> weeklyData,
+    List<DailyConsumptionData> dailyData,
+    DateTime startDate,
+    DateTime endDate
+)> CalculateOptimizedSpotConsumptionPriceAsync(
+    string csvFilePath,
+    decimal? fixedPrice
+)
+        {
+            _logger.LogInformation("Start calculating optimized spot consumption prices.");
+
+            if (!IsValidFilePath(csvFilePath))
+            {
+                _logger.LogError("CSV file path is invalid or file does not exist: {csvFilePath}", csvFilePath);
+                return GetOptimizedDefaultResult();
+            }
+
+            try
+            {
+                _logger.LogInformation("Reading CSV file from path: {csvFilePath}", csvFilePath);
+
+                DateTime startDate;
+                DateTime endDate;
+                ConcurrentDictionary<DateTime, decimal> hourlyConsumption = new ConcurrentDictionary<DateTime, decimal>();
+
+                using (var reader = new StreamReader(csvFilePath))
+                {
+                    var headerLine = await reader.ReadLineAsync(); 
+                    var firstLine = await reader.ReadLineAsync();
+                    if (firstLine == null)
+                    {
+                        _logger.LogWarning("CSV file contains no data.");
+                        return GetOptimizedDefaultResult();
+                    }
+
+                    var (firstTimestamp, firstConsumption) = ParseCsvLine(firstLine);
+                    if (firstTimestamp == default)
+                    {
+                        _logger.LogWarning("Invalid timestamp in the first line.");
+                        return GetOptimizedDefaultResult();
+                    }
+
+                    startDate = firstTimestamp;
+                    endDate = firstTimestamp;
+
+                    
+                    hourlyConsumption.AddOrUpdate(firstTimestamp, firstConsumption, (key, oldValue) => oldValue + firstConsumption);
+
+                    string line;
+                    while ((line = await reader.ReadLineAsync()) != null)
+                    {
+                        var (timestamp, consumption) = ParseCsvLine(line);
+                        if (timestamp != default)
+                        {
+                            hourlyConsumption.AddOrUpdate(timestamp, consumption, (key, oldValue) => oldValue + consumption);
+
+                            if (timestamp > endDate)
+                            {
+                                endDate = timestamp;
+                            }
+                        }
+                    }
+                }
+
+                if (startDate == default || endDate == default)
+                {
+                    _logger.LogError("Invalid timestamps in the CSV file.");
+                    return GetOptimizedDefaultResult();
+                }
+
+                _logger.LogInformation("Fetching electricity prices from {startDate} to {endDate}", startDate, endDate);
+                var electricityPrices = await GetElectricityPricesAsync(startDate, endDate);
+
+                if (!electricityPrices.Any())
+                {
+                    _logger.LogError("No electricity prices found for the given period.");
+                    return GetOptimizedDefaultResult();
+                }
+
+                
+                var optimizedHourlyConsumption = OptimizeConsumption(hourlyConsumption);
+                decimal totalOptimizedConsumption = optimizedHourlyConsumption.Values.Sum();
+
+                var (totalOptimizedSpotPrice, _, _, monthlyData, weeklyData, dailyData) = ProcessCsvData(optimizedHourlyConsumption, electricityPrices, fixedPrice);
+
+                _logger.LogInformation("Optimized total spot price: {totalOptimizedSpotPrice}, Total consumption: {totalOptimizedConsumption}", totalOptimizedSpotPrice, totalOptimizedConsumption);
+
+                return (totalOptimizedSpotPrice / 100, totalOptimizedConsumption, FormatMonthlyData(monthlyData), FormatWeeklyData(weeklyData), FormatDailyData(dailyData), startDate, endDate);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error calculating optimized electricity consumption price.");
+                throw;
+            }
+        }
+
+
+        private ConcurrentDictionary<DateTime, decimal> OptimizeConsumption(ConcurrentDictionary<DateTime, decimal> hourlyConsumption)
+        {
+            _logger.LogInformation("Optimizing consumption by moving 40% of 12:00-23:59 consumption to 00:00-11:59 period.");
+
+            var optimizedConsumption = new ConcurrentDictionary<DateTime, decimal>(hourlyConsumption);
+
+            foreach (var (timestamp, consumption) in hourlyConsumption)
+            {
+                if (timestamp.Hour >= 12 && timestamp.Hour <= 23)
+                {
+                    //% Of consumption that is moved to cheaper hours
+                    var consumptionToMove = consumption * 0.4m;
+                    optimizedConsumption[timestamp] -= consumptionToMove;
+
+                    //Move taken % to cheaperhours
+                    var nextDayTimestamp = timestamp.AddHours(12);
+                    optimizedConsumption.AddOrUpdate(nextDayTimestamp, consumptionToMove, (key, oldValue) => oldValue + consumptionToMove);
+                }
+            }
+
+            _logger.LogInformation("Consumption optimized successfully.");
+            return optimizedConsumption;
+        }
+
+        private static (decimal totalOptimizedSpotPrice, decimal totalOptimizedConsumption, List<MonthlyConsumptionData> monthlyData, List<WeeklyConsumptionData> weeklyData, List<DailyConsumptionData> dailyData, DateTime startDate, DateTime endDate) GetOptimizedDefaultResult()
+        {
+            return (0, 0, new List<MonthlyConsumptionData>(), new List<WeeklyConsumptionData>(), new List<DailyConsumptionData>(), default, default);
+        }
+
+
     }
 }
