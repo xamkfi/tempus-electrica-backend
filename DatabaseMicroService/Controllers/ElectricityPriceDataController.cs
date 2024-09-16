@@ -19,19 +19,20 @@ namespace DatabaseMicroService.Controllers
         private readonly IDateRangeDataService _dateRangeDataService;
         private readonly IElectricityPriceService _electricityService;
         private readonly ICalculateFingridConsumptionPrice _calculateFinGridConsumptionPrice;
-
         public ElectricityPriceDataController(
             ILogger<ElectricityPriceDataController> logger,
             ISaveHistoryDataService saveHistoryDataService,
             IDateRangeDataService dateRangeDataService,
             IElectricityPriceService electricityService,
             ICalculateFingridConsumptionPrice calculateFingridConsumptionPrice)
+            
         {
             _logger = logger;
             _saveHistoryDataService = saveHistoryDataService;
             _dateRangeDataService = dateRangeDataService;
             _electricityService = electricityService;
             _calculateFinGridConsumptionPrice = calculateFingridConsumptionPrice;
+            
         }
 
         
@@ -118,7 +119,7 @@ namespace DatabaseMicroService.Controllers
 
             try
             {
-                var (totalSpotPrice, totalFixedPrice, cheaperOption, totalConsumption, priceDifference, equivalentFixedPrice, monthlyData, weeklyData, dailyData, startDate, endDate) = await _calculateFinGridConsumptionPrice.CalculateTotalConsumptionPricesAsync(filePath, fixedPrice);
+                var (totalSpotPrice, totalFixedPrice, cheaperOption, totalConsumption, priceDifference, optimizedPriceDifference, equivalentFixedPrice, totalOptimizedSpotPrice, monthlyData, weeklyData, dailyData, startDate, endDate) = await _calculateFinGridConsumptionPrice.CalculateTotalConsumptionPricesAsync(filePath, fixedPrice);
 
                 var result = new
                 {
@@ -126,13 +127,16 @@ namespace DatabaseMicroService.Controllers
                     TotalFixedPrice = totalFixedPrice,
                     CheaperOption = cheaperOption,
                     PriceDifference = priceDifference,
+                    OptimizedPriceDifference = optimizedPriceDifference,
                     TotalConsumption = totalConsumption,
                     EquivalentFixedPrice = equivalentFixedPrice,
+                    TotalOptimizedSpotPrice = totalOptimizedSpotPrice,
                     MonthlyData = monthlyData,
                     WeeklyData = weeklyData,
                     DailyData = dailyData,
                     StartDate = startDate,
                     EndDate = endDate,
+                 
 
                 };
 
@@ -217,5 +221,7 @@ namespace DatabaseMicroService.Controllers
                 return StatusCode(StatusCodes.Status500InternalServerError, "An error occurred while calculating price and consumption.");
             }
         }
+       
+        
     }
 }
