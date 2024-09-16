@@ -46,7 +46,7 @@ namespace TestProject.Application
             var csvFilePath = "nonexistentfile.csv";
             decimal fixedPrice = 0.20m;
 
-            var (totalSpotPrice, totalFixedPrice, cheaperOption, _, _, equivalentFixedPrice,_, _, _, _, _, _) = await _calculateFingridConsumptionPrice.CalculateTotalConsumptionPricesAsync(csvFilePath, fixedPrice);
+            var (totalSpotPrice, totalFixedPrice, cheaperOption, _, _, _, equivalentFixedPrice,_, _, _, _, _, _) = await _calculateFingridConsumptionPrice.CalculateTotalConsumptionPricesAsync(csvFilePath, fixedPrice);
 
 
             Assert.Equal(0, totalSpotPrice);
@@ -66,7 +66,7 @@ namespace TestProject.Application
             decimal fixedPrice = 0.20m;
 
             
-            var (totalSpotPrice, totalFixedPrice, cheaperOption, _, _, equivalentFixedPrice, _, _, _, _, _, _) = await _calculateFingridConsumptionPrice.CalculateTotalConsumptionPricesAsync(csvFilePath, fixedPrice);
+            var (totalSpotPrice, totalFixedPrice, cheaperOption, _, _, _, equivalentFixedPrice, _, _, _, _, _, _) = await _calculateFingridConsumptionPrice.CalculateTotalConsumptionPricesAsync(csvFilePath, fixedPrice);
 
             Assert.Equal(0, totalSpotPrice);
             Assert.Equal(0, totalFixedPrice);
@@ -85,7 +85,7 @@ namespace TestProject.Application
             await File.WriteAllTextAsync(csvFilePath, csvData);
             decimal fixedPrice = 7.5M;
 
-            var(totalSpotPrice, totalFixedPrice, cheaperOption, totalConsumption, priceDifference, _,_, monthlyData, weeklyData, dailyData, _, _) = await _calculateFingridConsumptionPrice.CalculateTotalConsumptionPricesAsync(csvFilePath, fixedPrice);
+            var(totalSpotPrice, totalFixedPrice, cheaperOption, totalConsumption, priceDifference, _, _,_, monthlyData, weeklyData, dailyData, _, _) = await _calculateFingridConsumptionPrice.CalculateTotalConsumptionPricesAsync(csvFilePath, fixedPrice);
 
             Assert.Equal(55.8M, totalSpotPrice);  
             Assert.Equal(31.5M, totalFixedPrice); 
