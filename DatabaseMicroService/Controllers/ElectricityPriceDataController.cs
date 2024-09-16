@@ -19,19 +19,20 @@ namespace DatabaseMicroService.Controllers
         private readonly IDateRangeDataService _dateRangeDataService;
         private readonly IElectricityPriceService _electricityService;
         private readonly ICalculateFingridConsumptionPrice _calculateFinGridConsumptionPrice;
-
         public ElectricityPriceDataController(
             ILogger<ElectricityPriceDataController> logger,
             ISaveHistoryDataService saveHistoryDataService,
             IDateRangeDataService dateRangeDataService,
             IElectricityPriceService electricityService,
             ICalculateFingridConsumptionPrice calculateFingridConsumptionPrice)
+            
         {
             _logger = logger;
             _saveHistoryDataService = saveHistoryDataService;
             _dateRangeDataService = dateRangeDataService;
             _electricityService = electricityService;
             _calculateFinGridConsumptionPrice = calculateFingridConsumptionPrice;
+            
         }
 
         
@@ -118,7 +119,7 @@ namespace DatabaseMicroService.Controllers
 
             try
             {
-                var (totalSpotPrice, totalFixedPrice, cheaperOption, totalConsumption, priceDifference, equivalentFixedPrice, monthlyData, weeklyData, dailyData, startDate, endDate) = await _calculateFinGridConsumptionPrice.CalculateTotalConsumptionPricesAsync(filePath, fixedPrice);
+                var (totalSpotPrice, totalFixedPrice, cheaperOption, totalConsumption, priceDifference, equivalentFixedPrice, totalOptimizedSpotPrice, monthlyData, weeklyData, dailyData, startDate, endDate) = await _calculateFinGridConsumptionPrice.CalculateTotalConsumptionPricesAsync(filePath, fixedPrice);
 
                 var result = new
                 {
@@ -128,11 +129,13 @@ namespace DatabaseMicroService.Controllers
                     PriceDifference = priceDifference,
                     TotalConsumption = totalConsumption,
                     EquivalentFixedPrice = equivalentFixedPrice,
+                    TotalOptimizedSpotPrice = totalOptimizedSpotPrice,
                     MonthlyData = monthlyData,
                     WeeklyData = weeklyData,
                     DailyData = dailyData,
                     StartDate = startDate,
                     EndDate = endDate,
+                 
 
                 };
 
@@ -217,49 +220,7 @@ namespace DatabaseMicroService.Controllers
                 return StatusCode(StatusCodes.Status500InternalServerError, "An error occurred while calculating price and consumption.");
             }
         }
-        [HttpPost("UploadFinGridConsumptionFileOptimized")]
-        public async Task<IActionResult> UploadFinGridConsumptionFileOptimized(IFormFile file, [FromQuery] decimal? fixedPrice)
-        {
-            if (file == null || file.Length == 0)
-            {
-                _logger.LogWarning("CSV file is not provided or empty.");
-                return BadRequest("CSV file is required.");
-            }
-
-            if (!fixedPrice.HasValue)
-            {
-                _logger.LogWarning("Fixed price is not provided.");
-                return BadRequest("Fixed price is required.");
-            }
-
-            try
-            {
-                
-                var tempFilePath = Path.GetTempFileName();
-                using (var stream = new FileStream(tempFilePath, FileMode.Create))
-                {
-                    await file.CopyToAsync(stream);
-                }
-
-                var result = await _calculateFinGridConsumptionPrice.CalculateOptimizedSpotConsumptionPriceAsync(tempFilePath, fixedPrice);
-                System.IO.File.Delete(tempFilePath);
-
-                return Ok(new
-                {
-                    TotalOptimizedSpotPrice = result.totalOptimizedSpotPrice,
-                    TotalOptimizedConsumption = result.totalOptimizedConsumption,
-                    MonthlyData = result.monthlyData,
-                    WeeklyData = result.weeklyData,
-                    DailyData = result.dailyData,
-                    StartDate = result.startDate,
-                    EndDate = result.endDate
-                });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error processing CSV file.");
-                return StatusCode(StatusCodes.Status500InternalServerError, $"Internal server error: {ex.Message}");
-            }
-        }
+       
+        
     }
 }

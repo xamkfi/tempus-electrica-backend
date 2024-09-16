@@ -17,20 +17,22 @@ namespace TestProject.Presentation
         private readonly DefaultHttpContext _httpContext;
         private readonly Mock<IElectricityPriceService> _priceServiceMock;
         private readonly Mock<ICalculateFingridConsumptionPrice> _calculateFinGridConsumptionPriceMock;
-
+    
         public ElectricityPriceDataControllerTests()
         {
             _loggerMock = new Mock<ILogger<ElectricityPriceDataController>>();
             _saveHistoryDataServiceMock = new Mock<ISaveHistoryDataService>();
             _dateRangeDataServiceMock = new Mock<IDateRangeDataService>();
             _priceServiceMock = new Mock<IElectricityPriceService>();
-            _calculateFinGridConsumptionPriceMock = new Mock<ICalculateFingridConsumptionPrice>();  
+            _calculateFinGridConsumptionPriceMock = new Mock<ICalculateFingridConsumptionPrice>();
+           
             _controller = new ElectricityPriceDataController(
                 _loggerMock.Object,
                 _saveHistoryDataServiceMock.Object,
                 _dateRangeDataServiceMock.Object,
                 _priceServiceMock.Object,
                 _calculateFinGridConsumptionPriceMock.Object
+                
             );
 
             _httpContext = new DefaultHttpContext();
