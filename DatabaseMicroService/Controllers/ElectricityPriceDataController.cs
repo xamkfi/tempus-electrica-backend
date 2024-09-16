@@ -119,7 +119,7 @@ namespace DatabaseMicroService.Controllers
 
             try
             {
-                var (totalSpotPrice, totalFixedPrice, cheaperOption, totalConsumption, priceDifference, equivalentFixedPrice, totalOptimizedSpotPrice, monthlyData, weeklyData, dailyData, startDate, endDate) = await _calculateFinGridConsumptionPrice.CalculateTotalConsumptionPricesAsync(filePath, fixedPrice);
+                var (totalSpotPrice, totalFixedPrice, cheaperOption, totalConsumption, priceDifference, optimizedPriceDifference, equivalentFixedPrice, totalOptimizedSpotPrice, monthlyData, weeklyData, dailyData, startDate, endDate) = await _calculateFinGridConsumptionPrice.CalculateTotalConsumptionPricesAsync(filePath, fixedPrice);
 
                 var result = new
                 {
@@ -127,6 +127,7 @@ namespace DatabaseMicroService.Controllers
                     TotalFixedPrice = totalFixedPrice,
                     CheaperOption = cheaperOption,
                     PriceDifference = priceDifference,
+                    OptimizedPriceDifference = optimizedPriceDifference,
                     TotalConsumption = totalConsumption,
                     EquivalentFixedPrice = equivalentFixedPrice,
                     TotalOptimizedSpotPrice = totalOptimizedSpotPrice,

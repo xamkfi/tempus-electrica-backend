@@ -32,6 +32,7 @@ namespace ApplicationLayer.Services
         string cheaperOption,
         decimal totalConsumption,
         decimal priceDifference,
+        decimal optimizedPriceDifference,
         decimal equivalentFixedPrice,
         decimal totalOptimizedSpotPrice,
         List<MonthlyConsumptionData> monthlyData,
@@ -130,8 +131,8 @@ namespace ApplicationLayer.Services
                 var cheaperOption = DetermineCheaperOption(totalSpotPrice, totalFixedPrice, fixedPrice);
 
                 //Calculate the price difference based on the cheaper option
-                decimal priceDifference = Math.Round((totalSpotPrice - totalFixedPrice), 2);
-
+                decimal priceDifference = Math.Abs((totalSpotPrice - totalFixedPrice));
+                
                 //Calculate the equivalent fixed price if spot price is cheaper
                 decimal equivalentFixedPrice = 0;
                 if (cheaperOption == PriceOption.SpotPrice)
@@ -141,11 +142,23 @@ namespace ApplicationLayer.Services
 
                 //Optimize consumption and calculate the optimized spot price
                 var optimizedConsumption = OptimizeConsumption(hourlyConsumption);
-                var totalOptimizedSpotPrice = optimizedConsumption.Sum(x => CalculatePricesForConsumption(x.Key, x.Value, electricityPrices)) / 100;
+                var totalOptimizedSpotPrice = optimizedConsumption.Sum(x => CalculatePricesForConsumption(x.Key, x.Value, electricityPrices)) / 100; //Cents to eur
+
+                decimal optimizedPriceDifference = 0;
+
+                if (cheaperOption == PriceOption.SpotPrice)
+                {
+                    optimizedPriceDifference = Math.Abs(totalOptimizedSpotPrice - (fixedPrice ?? 0) * totalConsumption / 100);
+                }
+                else
+                {
+                    optimizedPriceDifference = Math.Abs(totalOptimizedSpotPrice - totalFixedPrice / 100);
+                }
+
 
                 _logger.LogInformation("Total spot price: {totalSpotPrice}, Total fixed price: {totalFixedPrice}, Total consumption: {totalConsumption}, Cheaper option: {cheaperOption}, Price difference: {priceDifference}, Equivalent fixed price: {equivalentFixedPrice}, Total optimized spot price: {totalOptimizedSpotPrice}", totalSpotPrice, totalFixedPrice, totalConsumption, cheaperOption, priceDifference, equivalentFixedPrice, totalOptimizedSpotPrice);
 
-                return (totalSpotPrice / 100, totalFixedPrice / 100, cheaperOption.ToString(), totalConsumption, priceDifference / 100,
+                return (totalSpotPrice / 100, totalFixedPrice / 100, cheaperOption.ToString(), totalConsumption, priceDifference / 100, optimizedPriceDifference,
                     equivalentFixedPrice / 100, totalOptimizedSpotPrice, FormatMonthlyData(monthlyData), FormatWeeklyData(weeklyData), FormatDailyData(dailyData), startDate, endDate);
 
             }
@@ -358,9 +371,9 @@ namespace ApplicationLayer.Services
             return !string.IsNullOrEmpty(filePath) && File.Exists(filePath);
         }
 
-        private static (decimal totalSpotPrice, decimal totalFixedPrice, string cheaperOption, decimal totalConsumption, decimal priceDifference, decimal equivalentFixedPrice, decimal totalOptimizedSpotPrice, List<MonthlyConsumptionData> monthlyData, List<WeeklyConsumptionData> weeklyData, List<DailyConsumptionData> dailyData, DateTime startDate, DateTime endDate) GetDefaultResult()
+        private static (decimal totalSpotPrice, decimal totalFixedPrice, string cheaperOption, decimal totalConsumption, decimal priceDifference, decimal optimizedPriceDifference, decimal equivalentFixedPrice, decimal totalOptimizedSpotPrice, List<MonthlyConsumptionData> monthlyData, List<WeeklyConsumptionData> weeklyData, List<DailyConsumptionData> dailyData, DateTime startDate, DateTime endDate) GetDefaultResult()
         {
-            return (0, 0, "Error calculating data, or no data were found", 0, 0, 0, 0,
+            return (0, 0, "Error calculating data, or no data were found", 0, 0, 0, 0, 0,
                 new List<MonthlyConsumptionData>(), new List<WeeklyConsumptionData>(), new List<DailyConsumptionData>(), default, default);
         }
 
