@@ -2,14 +2,14 @@ name: CD
 
 on:
   workflow_run:
-    workflows: ["CI-development"]  # Triggers when the CI-development workflow is completed
+    workflows: ["CI-development"]  
     types:
       - completed
     branches:
-      - master  # This should listen for merges to master
+      - master  
   push:
     branches:
-      - master  # This will also trigger on push to master, if needed
+      - master  
 
 env:
   AZURE_WEBAPP_NAME: DatabaseMicroService20240809132034 
@@ -18,6 +18,7 @@ env:
 jobs:
   build:
     runs-on: windows-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}  
 
     steps:
       - uses: actions/checkout@v4
@@ -70,7 +71,6 @@ jobs:
 
   deploy:
     needs: build
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}  # Only run if CI-development succeeded
     permissions:
       contents: none
     runs-on: windows-latest
