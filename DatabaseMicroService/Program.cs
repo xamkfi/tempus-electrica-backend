@@ -7,7 +7,7 @@ using Infrastructure.Data;
 using Infrastructure.Repositories;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi.Models;
-
+using System.Text.Json.Serialization;
 
 public class Program
 {
@@ -16,7 +16,13 @@ public class Program
         var builder = WebApplication.CreateBuilder(args);
 
         // Register services needed for application setup
-        builder.Services.AddControllers();
+        builder.Services.AddControllers()
+                    .AddJsonOptions(options =>
+                    {
+                        options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
+                        options.JsonSerializerOptions.PropertyNamingPolicy = null;
+                    });
+
         builder.Services.AddEndpointsApiExplorer();
         builder.Services.AddHttpClient();
         builder.Services.AddApplicationInsightsTelemetry(options =>
@@ -42,8 +48,9 @@ public class Program
 
 
         var keyVaultManager = builder.Services.BuildServiceProvider().GetRequiredService<IKeyVaultSecretManager>();
-        var vaultSecret = await keyVaultManager.GetSecretAsync();
-        var dbConnectionString = vaultSecret.DbConnectionString;
+        //var vaultSecret = await keyVaultManager.GetSecretAsync();
+        //var dbConnectionString = vaultSecret.DbConnectionString;
+        var dbConnectionString = "Data Source=(localdb)\\MSSQLLocalDB;Initial Catalog=master;Integrated Security=True;Connect Timeout=30;Encrypt=False;Trust Server Certificate=False;Application Intent=ReadWrite;Multi Subnet Failover=False";
         // Register the DbContext with the connection string fetched from Key Vault
         builder.Services.AddDbContext<ElectricityDbContext>(options =>
             options.UseSqlServer(dbConnectionString));

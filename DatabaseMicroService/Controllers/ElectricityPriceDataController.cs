@@ -183,7 +183,7 @@ namespace DatabaseMicroService.Controllers
 
             try
             {
-                var (totalFixedPriceCost, totalSpotPriceCost, costDifference, cheaperOption, totalConsumption, averageHourlySpotPrice, monthlyData) =
+                var (totalFixedPriceCost, totalSpotPriceCost, costDifference, cheaperOption, totalAverageConsumption, totalMinConsumption, totalMaxConsumption, averageHourlySpotPrice, monthlyData) =
                     await _electricityService.GetElectricityPriceDataAsync(request);
 
                 var calculationYears = $"{request.Year - 1} - {request.Year}";
@@ -192,7 +192,9 @@ namespace DatabaseMicroService.Controllers
                 {
                     TotalFixedPriceCost = totalFixedPriceCost,
                     TotalSpotPriceCost = totalSpotPriceCost,
-                    TotalDirectiveConsumption = totalConsumption,
+                    TotalDirectiveConsumption = totalAverageConsumption,
+                    EstimatedMinConsumption = totalMinConsumption,
+                    EstimatedMaxConsumption = totalMaxConsumption,
                     CheaperOption = cheaperOption,
                     CostDifference = costDifference,
                     AverageHourlySpotPrice = averageHourlySpotPrice,
@@ -221,7 +223,5 @@ namespace DatabaseMicroService.Controllers
                 return StatusCode(StatusCodes.Status500InternalServerError, "An error occurred while calculating price and consumption.");
             }
         }
-       
-        
     }
 }
