@@ -52,7 +52,7 @@ namespace TestProject.Application
 
             // Assert
             Assert.Equal(1019.48M, result.totalFixedPriceCost);
-            Assert.Equal(12743.5M, result.totalConsumption);
+            Assert.Equal(12743.5M, result.totalAverageConsumption);
         }
 
         [Fact]
