@@ -1,0 +1,97 @@
+name: CD
+
+on:
+  workflow_run:
+    workflows: ["CI-development"]  # Triggers when the CI-development workflow is completed
+    types:
+      - completed
+    branches:
+      - master  # This should listen for merges to master
+  push:
+    branches:
+      - master  # This will also trigger on push to master, if needed
+
+env:
+  AZURE_WEBAPP_NAME: DatabaseMicroService20240809132034 
+  DOTNET_VERSION: '8.0.x'
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up .NET Core
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Check Azure CLI version
+        run: az --version
+
+      - name: Debug Environment Variables  # Debugging step
+        run: printenv
+
+      - name: Restore Tools
+        run: dotnet tool restore
+
+      - name: Install dotnet-ef tool
+        run: dotnet tool install --global dotnet-ef
+
+      - name: Set PATH for dotnet tools
+        run: echo "${{ runner.tool_cache }}/dotnet-tools" >> $GITHUB_PATH
+
+      - name: Build Bundle
+        run: dotnet ef migrations bundle --self-contained --force
+        working-directory: ./DatabaseMicroService
+
+      - name: Run Migrations
+        run: pwsh -Command "./efbundle --connection '${{ secrets.CONNECTION_STRING }}'"
+        working-directory: ./DatabaseMicroService
+
+      - name: Build with dotnet
+        run: dotnet build --configuration Release --output .\build\
+        working-directory: ./DatabaseMicroService
+
+      - name: dotnet publish
+        run: dotnet publish -c Release -o ${{ github.workspace }}/myapp
+        working-directory: ./DatabaseMicroService
+
+      - name: List files in publish directory  # Debugging step
+        run: dir ${{ github.workspace }}/myapp
+        shell: pwsh
+
+      - name: Upload artifact for deployment job
+        uses: actions/upload-artifact@v3
+        with:
+          name: .net-app
+          path: ${{ github.workspace }}/myapp
+
+  deploy:
+    needs: build
+    permissions:
+      contents: none
+    runs-on: windows-latest
+    environment:
+      name: 'Development'
+      url: ${{ steps.deploy-to-webapp.outputs.webapp-url }}
+
+    steps:
+      - name: Download artifact from build job
+        uses: actions/download-artifact@v3
+        with:
+          name: .net-app
+          path: ${{ github.workspace }}/myapp
+
+      - name: List downloaded files for debugging
+        run: dir ${{ github.workspace }}/myapp
+        shell: pwsh
+
+      - name: Deploy to Azure Web App
+        id: deploy-to-webapp
+        uses: azure/webapps-deploy@v2
+        with:
+          app-name: ${{ env.AZURE_WEBAPP_NAME }}
+          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+          package: ${{ github.workspace }}/myapp

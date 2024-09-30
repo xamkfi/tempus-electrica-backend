@@ -43,7 +43,7 @@ namespace ApplicationLayer.Services
 
         public async Task<VaultSecret?> GetSecretAsync()
         {
-            const string secretName = "DbConnectionString";
+            const string secretName = "DatabaseConnectionString";
 
             if (_secretsCache.TryGetValue(secretName, out string? cachedSecret))
             {
