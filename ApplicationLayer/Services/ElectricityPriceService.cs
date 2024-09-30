@@ -17,7 +17,7 @@ namespace ApplicationLayer.Services
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
 
-        public async Task<(decimal totalFixedPriceCost, decimal totalSpotPriceCost, decimal costDifference, string cheaperOption, decimal totalConsumption, decimal averageHourlySpotPrice, List<MonthlyData> monthlyData)> GetElectricityPriceDataAsync(CombinedRequestDtoIn request)
+        public async Task<(decimal totalFixedPriceCost, decimal totalSpotPriceCost, decimal costDifference, string cheaperOption, decimal totalAverageConsumption, decimal totalMinConsumption, decimal totalMaxConsumption, decimal averageHourlySpotPrice, List<MonthlyData> monthlyData)> GetElectricityPriceDataAsync(CombinedRequestDtoIn request)
         {
             _logger.LogInformation("Start processing GetElectricityPriceDataAsync for year {Year}", request.Year);
             request.ValidateModel();
@@ -29,10 +29,13 @@ namespace ApplicationLayer.Services
             var electricityPriceData = (await _electricityRepository.GetPricesForPeriodAsync(startDate.AddYears(-1), startDate))?.ToList() ?? new List<ElectricityPriceData>();
             ValidateElectricityPriceData(electricityPriceData, startDate, _logger);
 
-            var totalDirectiveConsumption = CalculateDirectiveConsumption(request);
-            var totalFixedPriceCost = CalculateYearlyCost(request.FixedPrice, totalDirectiveConsumption);
-            var totalSpotPriceCost = CalculateYearlySpotPrice(electricityPriceData, totalDirectiveConsumption);
-            var monthlyData = CalculateMonthlyDataAsync(totalDirectiveConsumption, electricityPriceData, request.FixedPrice, totalSpotPriceCost, request.Year);
+            // Get min, average, and max values from CalculateDirectiveConsumption
+            var (totalMinConsumption, totalAverageConsumption, totalMaxConsumption) = CalculateDirectiveConsumption(request);
+
+
+            var totalFixedPriceCost = CalculateYearlyCost(request.FixedPrice, totalAverageConsumption);
+            var totalSpotPriceCost = CalculateYearlySpotPrice(electricityPriceData, totalAverageConsumption);
+            var monthlyData = CalculateMonthlyDataAsync(totalAverageConsumption, electricityPriceData, request.FixedPrice, totalSpotPriceCost, request.Year);
             var costDifference = Math.Round(Math.Abs(totalFixedPriceCost - totalSpotPriceCost), 2);
 
             var averageHourlySpotPrice = CalculateAverageYearlySpotPrice(electricityPriceData);
@@ -42,7 +45,9 @@ namespace ApplicationLayer.Services
                 Math.Round(totalSpotPriceCost, 2),
                 costDifference,
                 totalFixedPriceCost < totalSpotPriceCost ? "Fixed price" : "Spot price",
-                Math.Round(totalDirectiveConsumption, 2),
+                Math.Round(totalAverageConsumption, 2),
+                Math.Round(totalMinConsumption, 2),
+                Math.Round(totalMaxConsumption, 2),
                 Math.Round(averageHourlySpotPrice, 2),
                 monthlyData
             );
@@ -50,6 +55,7 @@ namespace ApplicationLayer.Services
             _logger.LogInformation("Completed processing GetElectricityPriceDataAsync for year {Year}", request.Year);
             return result;
         }
+
 
         private static DateTime DetermineEndDate(int year, ILogger<ElectricityPriceService> logger)
         {
@@ -81,6 +87,8 @@ namespace ApplicationLayer.Services
             public decimal FloorHeatingConsumption { get; set; }
             public decimal SolarPanelSavings { get; set; }
             public WorkShiftType WorkShiftType { get; set; }
+            public decimal MinConsumption { get; set; }
+            public decimal MaxConsumption { get; set; }
         }
 
         public class MonthlyData
@@ -94,22 +102,23 @@ namespace ApplicationLayer.Services
             public decimal AverageConsumptionPerHour { get; set; }
         }
 
-        private decimal CalculateDirectiveConsumption(CombinedRequestDtoIn request)
+        private (decimal totalMinConsumption, decimal totalAverageConsumption, decimal totalMaxConsumption) CalculateDirectiveConsumption(CombinedRequestDtoIn request)
         {
             _logger.LogInformation("Calculating directive consumption");
-            decimal housingConsumption = GetHousingConsumption(request.HouseType, request.SquareMeters);
-            decimal workShiftConsumption = GetWorkShiftConsumption(request.WorkShiftType) * 365;
-            decimal saunaConsumption = CalculateSaunaConsumption(request.HasSauna, request.SaunaHeatingFrequency);
-            decimal fireplaceSavings = CalculateFireplaceSavings(request.HasFireplace, request.FireplaceFrequency);
+
+            var (housingMin, housingAverage, housingMax) = GetHousingConsumption(request.HouseType, request.SquareMeters);
+            var workShiftConsumption = GetWorkShiftConsumption(request.WorkShiftType) * 365;
+            var saunaConsumption = CalculateSaunaConsumption(request.HasSauna, request.SaunaHeatingFrequency);
+            var fireplaceSavings = CalculateFireplaceSavings(request.HasFireplace, request.FireplaceFrequency);
+
             int numberOfCars = request.NumberOfCars ?? 0;
-            decimal electricCarConsumption = CalculateElectricCarConsumption(request.HasElectricCar, numberOfCars, request.ElectricCarkWhUsagePerYear);
-            decimal residentConsumption = GetResidentConsumption(request.NumberOfResidents, request.HouseType);
+            var electricCarConsumption = CalculateElectricCarConsumption(request.HasElectricCar, numberOfCars, request.ElectricCarkWhUsagePerYear);
+            var (residentMin, residentAverage, residentMax) = GetResidentConsumption(request.NumberOfResidents, request.HouseType);
 
-            decimal heatingConsumption = 0;
-
+            decimal heatingMin = 0, heatingAverage = 0, heatingMax = 0;
             if (request.HouseType != HouseType.ApartmentHouse)
             {
-                heatingConsumption = GetHeatingConsumption(request.HeatingType);
+                (heatingMin, heatingAverage, heatingMax) = GetHeatingConsumption(request.HeatingType);
             }
 
             decimal solarPanelSavings = 0;
@@ -124,13 +133,20 @@ namespace ApplicationLayer.Services
                 floorHeatingConsumption = CalculateFloorHeatingConsumption(request.FloorSquareMeters.Value);
             }
 
-            decimal totalConsumption = housingConsumption + workShiftConsumption + heatingConsumption + electricCarConsumption
-                + residentConsumption + saunaConsumption + floorHeatingConsumption;
-            totalConsumption -= (fireplaceSavings + solarPanelSavings);
+            decimal totalMinConsumption = housingMin + workShiftConsumption + heatingMin + electricCarConsumption + residentMin + saunaConsumption + floorHeatingConsumption;
+            decimal totalAverageConsumption = housingAverage + workShiftConsumption + heatingAverage + electricCarConsumption + residentAverage + saunaConsumption + floorHeatingConsumption;
+            decimal totalMaxConsumption = housingMax + workShiftConsumption + heatingMax + electricCarConsumption + residentMax + saunaConsumption + floorHeatingConsumption;
 
-            _logger.LogInformation("Calculated total directive consumption as {TotalConsumption}", totalConsumption);
-            return totalConsumption;
+            totalMinConsumption -= (fireplaceSavings + solarPanelSavings);
+            totalAverageConsumption -= (fireplaceSavings + solarPanelSavings);
+            totalMaxConsumption -= (fireplaceSavings + solarPanelSavings);
+
+            _logger.LogInformation("Calculated total directive consumption: Min {MinConsumption}, Average {AverageConsumption}, Max {MaxConsumption}",
+                totalMinConsumption, totalAverageConsumption, totalMaxConsumption);
+
+            return (totalMinConsumption, totalAverageConsumption, totalMaxConsumption);
         }
+
 
         private decimal CalculateSolarPanelSavings(int? numberOfPanels)
         {
@@ -189,15 +205,15 @@ namespace ApplicationLayer.Services
             return numberOfCars * (electricCarkWhUsagePerYear ?? 0);
         }
 
-        private decimal GetHousingConsumption(HouseType houseType, int squareMeters)
+        private (decimal min, decimal average, decimal max) GetHousingConsumption(HouseType houseType, int squareMeters)
         {
             return houseType switch
             {
-                HouseType.ApartmentHouse => squareMeters * 30,
-                HouseType.TerracedHouse => squareMeters * 110,
-                HouseType.DetachedHouse => squareMeters * 130,
-                HouseType.Cottage => squareMeters * 120,
-                _ => 0
+                HouseType.ApartmentHouse => (squareMeters * 20, squareMeters * 25, squareMeters * 30),
+                HouseType.TerracedHouse => (squareMeters * 100, squareMeters * 110, squareMeters * 120),
+                HouseType.DetachedHouse => (squareMeters * 115, squareMeters * 130, squareMeters * 145),
+                HouseType.Cottage => (squareMeters * 110, squareMeters * 120, squareMeters * 130),
+                _ => (0, 0, 0)
             };
         }
 
@@ -243,26 +259,26 @@ namespace ApplicationLayer.Services
             }
         };
 
-        private decimal GetHeatingConsumption(HeatingType heatingType)
+        private (decimal min, decimal average, decimal max) GetHeatingConsumption(HeatingType heatingType)
         {
             return heatingType switch
             {
-                HeatingType.ElectricHeating => 1000,
-                HeatingType.DistrictHeating => 800,
-                HeatingType.GeothermalHeating => 500,
-                HeatingType.OilHeating => 500,
-                _ => 0
+                HeatingType.ElectricHeating => (850, 1000, 1150),
+                HeatingType.DistrictHeating => (650, 800, 950),
+                HeatingType.GeothermalHeating => (400, 500, 600),
+                HeatingType.OilHeating => (400, 500, 600),
+                _ => (0, 0, 0)
             };
         }
 
-        private decimal GetResidentConsumption(int numberOfResidents, HouseType houseType)
+        private (decimal min, decimal average, decimal max) GetResidentConsumption(int numberOfResidents, HouseType houseType)
         {
             return houseType switch
             {
-                HouseType.ApartmentHouse => numberOfResidents * 400,
-                HouseType.TerracedHouse => numberOfResidents * 600,
-                HouseType.DetachedHouse => numberOfResidents * 600,
-                _ => 0
+                HouseType.ApartmentHouse => (numberOfResidents * 300, numberOfResidents * 400, numberOfResidents * 500),
+                HouseType.TerracedHouse => (numberOfResidents * 500, numberOfResidents * 600, numberOfResidents * 700),
+                HouseType.DetachedHouse => (numberOfResidents * 500, numberOfResidents * 600,numberOfResidents * 700),
+                _ => (0, 0, 0)
             };
         }
 
@@ -308,7 +324,7 @@ namespace ApplicationLayer.Services
             return totalSpotPrice / totalHours;
         }
 
-        private List<MonthlyData> CalculateMonthlyDataAsync(decimal totalDirectiveConsumption, IEnumerable<ElectricityPriceData> electricityPriceData, decimal fixedPrice, decimal yearlySpotPriceCost, int year)
+        private List<MonthlyData> CalculateMonthlyDataAsync(decimal totalAverageConsumption, IEnumerable<ElectricityPriceData> electricityPriceData, decimal fixedPrice, decimal yearlySpotPriceCost, int year)
         {
             var monthlyWeights = new Dictionary<int, decimal>
             {
@@ -321,12 +337,12 @@ namespace ApplicationLayer.Services
 
             foreach (var month in Enumerable.Range(1, 12))
             {
-                var consumption = totalDirectiveConsumption * monthlyWeights[month];
+                var consumption = totalAverageConsumption * monthlyWeights[month];
                 var spotPriceAverageOfMonth = CalculateMonthlyAverageHourlySpotPrice(electricityPriceData, month);
 
                 var fixedPriceTotal = Math.Round(consumption * fixedPrice, 2) / 100;
 
-                var monthlySpotPriceCost = yearlySpotPriceCost * (consumption / totalDirectiveConsumption);
+                var monthlySpotPriceCost = yearlySpotPriceCost * (consumption / totalAverageConsumption);
 
                 var totalHoursInMonth = CalculateTotalHoursInMonth(year, month);
                 var averageConsumptionPerHour = Math.Round(consumption / totalHoursInMonth, 2);
