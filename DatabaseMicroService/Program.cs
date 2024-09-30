@@ -48,9 +48,9 @@ public class Program
 
 
         var keyVaultManager = builder.Services.BuildServiceProvider().GetRequiredService<IKeyVaultSecretManager>();
-        //var vaultSecret = await keyVaultManager.GetSecretAsync();
-        //var dbConnectionString = vaultSecret.DbConnectionString;
-        var dbConnectionString = "Data Source=(localdb)\\MSSQLLocalDB;Initial Catalog=master;Integrated Security=True;Connect Timeout=30;Encrypt=False;Trust Server Certificate=False;Application Intent=ReadWrite;Multi Subnet Failover=False";
+        var vaultSecret = await keyVaultManager.GetSecretAsync();
+        var dbConnectionString = vaultSecret.DbConnectionString;
+     
         // Register the DbContext with the connection string fetched from Key Vault
         builder.Services.AddDbContext<ElectricityDbContext>(options =>
             options.UseSqlServer(dbConnectionString));
