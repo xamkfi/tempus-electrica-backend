@@ -3,6 +3,8 @@ using ApplicationLayer.Interfaces;
 using Domain.Entities;
 using Domain.Interfaces;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using System.Collections.Concurrent;
 
 namespace ApplicationLayer.Services
 {
@@ -10,296 +12,356 @@ namespace ApplicationLayer.Services
     {
         private readonly IElectricityRepository _electricityRepository;
         private readonly ILogger<ElectricityPriceService> _logger;
+        private readonly ConsumptionSettings _consumptionSettings;
 
-        public ElectricityPriceService(IElectricityRepository electricityRepository, ILogger<ElectricityPriceService> logger)
+        public ElectricityPriceService(
+            IElectricityRepository electricityRepository,
+            ILogger<ElectricityPriceService> logger,
+            IOptions<ConsumptionSettings> consumptionSettings)
         {
             _electricityRepository = electricityRepository ?? throw new ArgumentNullException(nameof(electricityRepository));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _consumptionSettings = consumptionSettings?.Value ?? throw new ArgumentNullException(nameof(consumptionSettings));
         }
 
-        public async Task<(decimal totalFixedPriceCost, decimal totalSpotPriceCost, decimal costDifference, string cheaperOption, decimal totalAverageConsumption, decimal totalMinConsumption, decimal totalMaxConsumption, decimal averageHourlySpotPrice, List<MonthlyData> monthlyData)> GetElectricityPriceDataAsync(CombinedRequestDtoIn request)
+        public async Task<ElectricityPriceResultDto> GetElectricityPriceDataAsync(CombinedRequestDtoIn request)
         {
             _logger.LogInformation("Start processing GetElectricityPriceDataAsync for year {Year}", request.Year);
-            request.ValidateModel();
+            ValidateRequest(request);
 
             var startDate = new DateTime(request.Year, 1, 1);
-            var endDate = DetermineEndDate(request.Year, _logger);
+            var endDate = DetermineEndDate(request.Year);
 
-            _logger.LogInformation("Fetching electricity price data from {StartDate} to {EndDate}", startDate.AddYears(-1), startDate);
-            var electricityPriceData = (await _electricityRepository.GetPricesForPeriodAsync(startDate.AddYears(-1), startDate))?.ToList() ?? new List<ElectricityPriceData>();
-            ValidateElectricityPriceData(electricityPriceData, startDate, _logger);
+            _logger.LogInformation("Fetching electricity price data from {StartDate} to {EndDate}", startDate, endDate);
+            var electricityPriceData = await FetchElectricityPriceDataAsync(startDate, endDate);
 
-            // Get min, average, and max values from CalculateDirectiveConsumption
-            var (totalMinConsumption, totalAverageConsumption, totalMaxConsumption) = CalculateDirectiveConsumption(request);
+            // Calculate total consumption
+            var consumptionResult = await Task.Run(() => CalculateTotalConsumption(request));
 
+            // Calculate costs
+            var totalFixedPriceCost = CalculateYearlyCost(request.FixedPrice, consumptionResult.AverageConsumption);
+            var totalSpotPriceCost = CalculateYearlySpotPrice(electricityPriceData, consumptionResult.AverageConsumption, request.WorkShiftType);
 
-            var totalFixedPriceCost = CalculateYearlyCost(request.FixedPrice, totalAverageConsumption);
-            var totalSpotPriceCost = CalculateYearlySpotPrice(electricityPriceData, totalAverageConsumption);
-            var monthlyData = CalculateMonthlyDataAsync(totalAverageConsumption, electricityPriceData, request.FixedPrice, totalSpotPriceCost, request.Year);
+            // Calculate monthly data
+            var monthlyData = await CalculateMonthlyDataAsync(consumptionResult.AverageConsumption, electricityPriceData, request.FixedPrice, request.Year, request.WorkShiftType);
+
             var costDifference = Math.Round(Math.Abs(totalFixedPriceCost - totalSpotPriceCost), 2);
-
+            var cheaperOption = totalFixedPriceCost < totalSpotPriceCost ? "Fixed price" : "Spot price";
             var averageHourlySpotPrice = CalculateAverageYearlySpotPrice(electricityPriceData);
 
-            var result = (
-                Math.Round(totalFixedPriceCost, 2),
-                Math.Round(totalSpotPriceCost, 2),
-                costDifference,
-                totalFixedPriceCost < totalSpotPriceCost ? "Fixed price" : "Spot price",
-                Math.Round(totalAverageConsumption, 2),
-                Math.Round(totalMinConsumption, 2),
-                Math.Round(totalMaxConsumption, 2),
-                Math.Round(averageHourlySpotPrice, 2),
-                monthlyData
-            );
+            var result = new ElectricityPriceResultDto
+            {
+                TotalFixedPriceCost = Math.Round(totalFixedPriceCost, 2),
+                TotalSpotPriceCost = Math.Round(totalSpotPriceCost, 2),
+                CostDifference = costDifference,
+                CheaperOption = cheaperOption,
+                AverageConsumption = Math.Round(consumptionResult.AverageConsumption, 2),
+                MinConsumption = Math.Round(consumptionResult.MinConsumption, 2),
+                MaxConsumption = Math.Round(consumptionResult.MaxConsumption, 2),
+                AverageHourlySpotPrice = Math.Round(averageHourlySpotPrice, 2),
+                MonthlyData = monthlyData
+            };
 
             _logger.LogInformation("Completed processing GetElectricityPriceDataAsync for year {Year}", request.Year);
             return result;
         }
 
+        #region Validation and Data Retrieval
 
-        private static DateTime DetermineEndDate(int year, ILogger<ElectricityPriceService> logger)
+        private void ValidateRequest(CombinedRequestDtoIn request)
+        {
+            if (request == null)
+            {
+                _logger.LogError("Request is null");
+                throw new ArgumentNullException(nameof(request));
+            }
+
+            // Add additional validation as needed
+            request.ValidateModel();
+            _logger.LogInformation("Request validated successfully");
+        }
+
+        private async Task<List<ElectricityPriceData>> FetchElectricityPriceDataAsync(DateTime startDate, DateTime endDate)
+        {
+            var electricityPriceData = await _electricityRepository.GetPricesForPeriodAsync(startDate, endDate);
+
+            if (electricityPriceData == null || !electricityPriceData.Any())
+            {
+                _logger.LogError("No electricity price data found for the specified date range");
+                throw new InvalidOperationException("No electricity price data found for the specified date range.");
+            }
+
+            _logger.LogInformation("Fetched {Count} electricity price data records", electricityPriceData.Count());
+            return electricityPriceData.ToList();
+        }
+
+        private DateTime DetermineEndDate(int year)
         {
             var endDate = year == DateTime.Now.Year ? DateTime.Now.Date : new DateTime(year, 12, 31);
-            logger.LogInformation("Determined end date as {EndDate} for year {Year}", endDate, year);
+            _logger.LogInformation("Determined end date as {EndDate} for year {Year}", endDate, year);
             return endDate;
         }
 
-        private static void ValidateElectricityPriceData(IEnumerable<ElectricityPriceData> electricityPriceData, DateTime startDate, ILogger<ElectricityPriceService> logger)
-        {
-            if (electricityPriceData == null || !electricityPriceData.Any())
-            {
-                logger.LogError("No data found for the specified date range starting from {StartDate}", startDate.AddYears(-1));
-                throw new InvalidOperationException($"No data found for the specified date range starting from {startDate.AddYears(-1)}.");
-            }
-            logger.LogInformation("Validated electricity price data for the specified date range starting from {StartDate}", startDate.AddYears(-1));
-        }
+        #endregion
 
-        public class Consumption
-        {
-            public decimal Total { get; set; }
-            public decimal HousingConsumption { get; set; }
-            public decimal WorkShiftConsumption { get; set; }
-            public decimal HeatingConsumption { get; set; }
-            public decimal SaunaConsumption { get; set; }
-            public decimal FireplaceSavings { get; set; }
-            public decimal ElectricCarConsumption { get; set; }
-            public decimal ResidentConsumption { get; set; }
-            public decimal FloorHeatingConsumption { get; set; }
-            public decimal SolarPanelSavings { get; set; }
-            public WorkShiftType WorkShiftType { get; set; }
-            public decimal MinConsumption { get; set; }
-            public decimal MaxConsumption { get; set; }
-        }
+        #region Consumption Calculations
 
-        public class MonthlyData
+        private ConsumptionResult CalculateTotalConsumption(CombinedRequestDtoIn request)
         {
-            public int Month { get; set; }
-            public decimal Consumption { get; set; }
-            public decimal SpotPriceAverageOfMonth { get; set; }
-            public decimal FixedPriceAverageOfMonth { get; set; }
-            public decimal FixedPriceTotal { get; set; }
-            public decimal SpotPriceTotal { get; set; }
-            public decimal AverageConsumptionPerHour { get; set; }
-        }
-
-        private (decimal totalMinConsumption, decimal totalAverageConsumption, decimal totalMaxConsumption) CalculateDirectiveConsumption(CombinedRequestDtoIn request)
-        {
-            _logger.LogInformation("Calculating directive consumption");
-
-            var (housingMin, housingAverage, housingMax) = GetHousingConsumption(request.HouseType, request.SquareMeters);
-            var workShiftConsumption = GetWorkShiftConsumption(request.WorkShiftType) * 365;
+            var housingConsumption = CalculateHousingConsumption(request.HouseType, request.SquareMeters);
+            var workShiftConsumption = CalculateWorkShiftConsumption(request.WorkShiftType);
             var saunaConsumption = CalculateSaunaConsumption(request.HasSauna, request.SaunaHeatingFrequency);
             var fireplaceSavings = CalculateFireplaceSavings(request.HasFireplace, request.FireplaceFrequency);
+            var electricCarConsumption = CalculateElectricCarConsumption(request);
+            var residentConsumption = CalculateResidentConsumption(request.NumberOfResidents, request.HouseType);
+            var heatingConsumption = CalculateHeatingConsumption(request);
+            var solarPanelSavings = CalculateSolarPanelSavings(request);
+            var floorHeatingConsumption = CalculateFloorHeatingConsumption(request);
 
-            int numberOfCars = request.NumberOfCars ?? 0;
-            var electricCarConsumption = CalculateElectricCarConsumption(request.HasElectricCar, numberOfCars, request.ElectricCarkWhUsagePerYear);
-            var (residentMin, residentAverage, residentMax) = GetResidentConsumption(request.NumberOfResidents, request.HouseType);
+            decimal minConsumption = housingConsumption.Min + workShiftConsumption * 365 + saunaConsumption
+                                     + electricCarConsumption + residentConsumption.Min + heatingConsumption.Min
+                                     + floorHeatingConsumption - fireplaceSavings - solarPanelSavings;
 
-            decimal heatingMin = 0, heatingAverage = 0, heatingMax = 0;
-            if (request.HouseType != HouseType.ApartmentHouse)
+            decimal averageConsumption = housingConsumption.Average + workShiftConsumption * 365 + saunaConsumption
+                                         + electricCarConsumption + residentConsumption.Average + heatingConsumption.Average
+                                         + floorHeatingConsumption - fireplaceSavings - solarPanelSavings;
+
+            decimal maxConsumption = housingConsumption.Max + workShiftConsumption * 365 + saunaConsumption
+                                     + electricCarConsumption + residentConsumption.Max + heatingConsumption.Max
+                                     + floorHeatingConsumption - fireplaceSavings - solarPanelSavings;
+
+            _logger.LogInformation("Total consumption calculated: Min={Min}, Average={Average}, Max={Max}",
+                minConsumption, averageConsumption, maxConsumption);
+
+            return new ConsumptionResult
             {
-                (heatingMin, heatingAverage, heatingMax) = GetHeatingConsumption(request.HeatingType);
-            }
-
-            decimal solarPanelSavings = 0;
-            if ((request.HouseType == HouseType.DetachedHouse || request.HouseType == HouseType.Cottage) && request.HasSolarPanel && request.SolarPanel.HasValue)
-            {
-                solarPanelSavings = CalculateSolarPanelSavings(request.SolarPanel.Value);
-            }
-
-            decimal floorHeatingConsumption = 0;
-            if ((request.HouseType == HouseType.ApartmentHouse || request.HouseType == HouseType.TerracedHouse) && request.HasFloorHeating && request.FloorSquareMeters.HasValue)
-            {
-                floorHeatingConsumption = CalculateFloorHeatingConsumption(request.FloorSquareMeters.Value);
-            }
-
-            decimal totalMinConsumption = housingMin + workShiftConsumption + heatingMin + electricCarConsumption + residentMin + saunaConsumption + floorHeatingConsumption;
-            decimal totalAverageConsumption = housingAverage + workShiftConsumption + heatingAverage + electricCarConsumption + residentAverage + saunaConsumption + floorHeatingConsumption;
-            decimal totalMaxConsumption = housingMax + workShiftConsumption + heatingMax + electricCarConsumption + residentMax + saunaConsumption + floorHeatingConsumption;
-
-            totalMinConsumption -= (fireplaceSavings + solarPanelSavings);
-            totalAverageConsumption -= (fireplaceSavings + solarPanelSavings);
-            totalMaxConsumption -= (fireplaceSavings + solarPanelSavings);
-
-            _logger.LogInformation("Calculated total directive consumption: Min {MinConsumption}, Average {AverageConsumption}, Max {MaxConsumption}",
-                totalMinConsumption, totalAverageConsumption, totalMaxConsumption);
-
-            return (totalMinConsumption, totalAverageConsumption, totalMaxConsumption);
+                MinConsumption = minConsumption,
+                AverageConsumption = averageConsumption,
+                MaxConsumption = maxConsumption
+            };
         }
 
-
-        private decimal CalculateSolarPanelSavings(int? numberOfPanels)
+        private (decimal Min, decimal Average, decimal Max) CalculateHousingConsumption(HouseType houseType, int squareMeters)
         {
-            if (!numberOfPanels.HasValue)
+            if (squareMeters <= 0)
             {
-                return 0;
+                _logger.LogError("Square meters must be a positive number");
+                throw new ArgumentException("Square meters must be a positive number.");
             }
 
-            var monthlyProduction = CalculateMonthlySolarPanelProduction(numberOfPanels.Value);
-            return monthlyProduction.Values.Sum();
+            return houseType switch
+            {
+                HouseType.ApartmentHouse => (squareMeters * 20, squareMeters * 25, squareMeters * 30),
+                HouseType.TerracedHouse => (squareMeters * 30, squareMeters * 35, squareMeters * 40),
+                HouseType.DetachedHouse => (squareMeters * 40, squareMeters * 45, squareMeters * 50),
+                HouseType.Cottage => (squareMeters * 35, squareMeters * 40, squareMeters * 45),
+                _ => throw new ArgumentException("Invalid house type")
+            };
         }
 
-        private static readonly Dictionary<int, decimal> MonthlyProductionPerPanel = new()
+        private decimal CalculateWorkShiftConsumption(WorkShiftType workShiftType)
         {
-            { 1, 6.3M },
-            { 2, 15.5M },
-            { 3, 33.6M },
-            { 4, 41.7M },
-            { 5, 51.3M },
-            { 6, 49.5M },
-            { 7, 49.1M },
-            { 8, 42.7M },
-            { 9, 29.6M },
-            { 10, 18.0M },
-            { 11, 6.4M },
-            { 12, 3.1M }
-        };
-
-        private static Dictionary<int, decimal> CalculateMonthlySolarPanelProduction(int numberOfPanels)
-        {
-            return MonthlyProductionPerPanel
-                .ToDictionary(kvp => kvp.Key, kvp => kvp.Value * numberOfPanels);
-        }
-
-        private decimal CalculateFloorHeatingConsumption(int floorSquareMeters)
-        {
-            var consumptionPerSquareMeter = 100;
-            return floorSquareMeters * consumptionPerSquareMeter;
+            return workShiftType switch
+            {
+                WorkShiftType.DayWorker => 2M,
+                WorkShiftType.ShiftWorker => 3M,
+                WorkShiftType.RemoteWorker => 5M,
+                _ => throw new ArgumentException("Invalid work shift type")
+            };
         }
 
         private decimal CalculateSaunaConsumption(bool hasSauna, int? saunaHeatingFrequency)
         {
-            return hasSauna ? (saunaHeatingFrequency ?? 0) * 52 * 13 : 0;
+            if (!hasSauna || saunaHeatingFrequency == null || saunaHeatingFrequency <= 0)
+            {
+                return 0;
+            }
+
+            return saunaHeatingFrequency.Value * 52 * 13;
         }
 
         private decimal CalculateFireplaceSavings(bool hasFireplace, int? fireplaceFrequency)
         {
-            return hasFireplace ? (fireplaceFrequency ?? 0) * 720 : 0;
-        }
-
-        private decimal CalculateElectricCarConsumption(bool hasElectricCar, int numberOfCars, int? electricCarkWhUsagePerYear)
-        {
-            if (!hasElectricCar)
+            if (!hasFireplace || fireplaceFrequency == null || fireplaceFrequency <= 0)
+            {
                 return 0;
-
-            return numberOfCars * (electricCarkWhUsagePerYear ?? 0);
-        }
-
-        private (decimal min, decimal average, decimal max) GetHousingConsumption(HouseType houseType, int squareMeters)
-        {
-            return houseType switch
-            {
-                HouseType.ApartmentHouse => (squareMeters * 20, squareMeters * 25, squareMeters * 30),
-                HouseType.TerracedHouse => (squareMeters * 100, squareMeters * 110, squareMeters * 120),
-                HouseType.DetachedHouse => (squareMeters * 115, squareMeters * 130, squareMeters * 145),
-                HouseType.Cottage => (squareMeters * 110, squareMeters * 120, squareMeters * 130),
-                _ => (0, 0, 0)
-            };
-        }
-
-        private decimal GetWorkShiftConsumption(WorkShiftType workShiftType)
-        {
-            return workShiftType switch
-            {
-                WorkShiftType.DayWorker => 0.3M,
-                WorkShiftType.ShiftWorker => 0.4M,
-                WorkShiftType.RemoteWorker => 0.5M,
-                _ => 0.3M
-            };
-        }
-
-        private readonly Dictionary<WorkShiftType, Dictionary<int, decimal>> _workShiftWeights = new()
-        {
-            { WorkShiftType.DayWorker, new Dictionary<int, decimal>
-                {
-                    { 0, 0.05M }, { 1, 0.05M }, { 2, 0.05M }, { 3, 0.05M }, { 4, 0.05M },
-                    { 5, 0.05M }, { 6, 0.05M }, { 7, 0.05M }, { 8, 0.01M }, { 9, 0.01M },
-                    { 10, 0.01M }, { 11, 0.01M }, { 12, 0.01M }, { 13, 0.01M }, { 14, 0.01M },
-                    { 15, 0.01M }, { 16, 0.01M }, { 17, 0.01M }, { 18, 0.05M }, { 19, 0.05M },
-                    { 20, 0.05M }, { 21, 0.05M }, { 22, 0.05M }, { 23, 0.05M }
-                }
-            },
-            { WorkShiftType.RemoteWorker, new Dictionary<int, decimal>
-                {
-                    { 0, 0.10M }, { 1, 0.10M }, { 2, 0.10M }, { 3, 0.10M }, { 4, 0.10M },
-                    { 5, 0.10M }, { 6, 0.10M }, { 7, 0.10M }, { 8, 0.10M }, { 9, 0.10M },
-                    { 10, 0.10M }, { 11, 0.10M }, { 12, 0.10M }, { 13, 0.10M }, { 14, 0.10M },
-                    { 15, 0.10M }, { 16, 0.10M }, { 17, 0.10M }, { 18, 0.10M }, { 19, 0.10M },
-                    { 20, 0.10M }, { 21, 0.10M }, { 22, 0.10M }, { 23, 0.10M }
-                }
-            },
-            { WorkShiftType.ShiftWorker, new Dictionary<int, decimal>
-                {
-                    { 0, 0.07M }, { 1, 0.07M }, { 2, 0.07M }, { 3, 0.07M }, { 4, 0.07M },
-                    { 5, 0.07M }, { 6, 0.07M }, { 7, 0.07M }, { 8, 0.07M }, { 9, 0.07M },
-                    { 10, 0.07M }, { 11, 0.07M }, { 12, 0.07M }, { 13, 0.07M }, { 14, 0.07M },
-                    { 15, 0.07M }, { 16, 0.07M }, { 17, 0.07M }, { 18, 0.07M }, { 19, 0.07M },
-                    { 20, 0.07M }, { 21, 0.07M }, { 22, 0.07M }, { 23, 0.07M }
-                }
             }
-        };
 
-        private (decimal min, decimal average, decimal max) GetHeatingConsumption(HeatingType heatingType)
-        {
-            return heatingType switch
-            {
-                HeatingType.ElectricHeating => (850, 1000, 1150),
-                HeatingType.DistrictHeating => (650, 800, 950),
-                HeatingType.GeothermalHeating => (400, 500, 600),
-                HeatingType.OilHeating => (400, 500, 600),
-                _ => (0, 0, 0)
-            };
+            var savingsPerUse = _consumptionSettings.SavingsPerFireplaceUse;
+            return fireplaceFrequency.Value * 52 * savingsPerUse;
         }
 
-        private (decimal min, decimal average, decimal max) GetResidentConsumption(int numberOfResidents, HouseType houseType)
+        private decimal CalculateElectricCarConsumption(CombinedRequestDtoIn request)
         {
+            if (!request.HasElectricCar)
+            {
+                return 0;
+            }
+
+            if (request.NumberOfCars == null || request.NumberOfCars <= 0)
+            {
+                _logger.LogError("Number of cars must be a positive number when HasElectricCar is true");
+                throw new ArgumentException("Number of cars must be a positive number when HasElectricCar is true.");
+            }
+
+            if (request.ElectricCarkWhUsagePerYear == null || request.ElectricCarkWhUsagePerYear <= 0)
+            {
+                _logger.LogError("Electric car kWh usage per year must be a positive number");
+                throw new ArgumentException("Electric car kWh usage per year must be a positive number.");
+            }
+
+            return request.NumberOfCars.Value * request.ElectricCarkWhUsagePerYear.Value;
+        }
+
+        private (decimal Min, decimal Average, decimal Max) CalculateResidentConsumption(int numberOfResidents, HouseType houseType)
+        {
+            if (numberOfResidents <= 0)
+            {
+                _logger.LogError("Number of residents must be a positive number");
+                throw new ArgumentException("Number of residents must be a positive number.");
+            }
+
             return houseType switch
             {
-                HouseType.ApartmentHouse => (numberOfResidents * 300, numberOfResidents * 400, numberOfResidents * 500),
-                HouseType.TerracedHouse => (numberOfResidents * 500, numberOfResidents * 600, numberOfResidents * 700),
-                HouseType.DetachedHouse => (numberOfResidents * 500, numberOfResidents * 600,numberOfResidents * 700),
-                _ => (0, 0, 0)
+                HouseType.ApartmentHouse => (numberOfResidents * 1000, numberOfResidents * 1500, numberOfResidents * 2000),
+                HouseType.TerracedHouse => (numberOfResidents * 1200, numberOfResidents * 1700, numberOfResidents * 2200),
+                HouseType.DetachedHouse => (numberOfResidents * 1500, numberOfResidents * 2000, numberOfResidents * 2500),
+                _ => throw new ArgumentException("Invalid house type")
             };
         }
+
+        private (decimal Min, decimal Average, decimal Max) CalculateHeatingConsumption(CombinedRequestDtoIn request)
+        {
+            if (request.HouseType == HouseType.ApartmentHouse)
+            {
+                return (0, 0, 0);
+            }
+
+            return request.HeatingType switch
+            {
+                HeatingType.ElectricHeating => (10000, 15000, 20000),
+                HeatingType.DistrictHeating => (8000, 12000, 16000),
+                HeatingType.GeothermalHeating => (5000, 7500, 10000),
+                HeatingType.OilHeating => (8000, 12000, 16000),
+                _ => throw new ArgumentException("Invalid heating type")
+            };
+        }
+
+        private decimal CalculateSolarPanelSavings(CombinedRequestDtoIn request)
+        {
+            if (!request.HasSolarPanel || request.SolarPanel == null || request.SolarPanel <= 0)
+            {
+                return 0;
+            }
+
+            var monthlyProduction = CalculateMonthlySolarPanelProduction(request.SolarPanel.Value);
+            return monthlyProduction.Values.Sum();
+        }
+
+        private Dictionary<int, decimal> CalculateMonthlySolarPanelProduction(int numberOfPanels)
+        {
+            return _consumptionSettings.MonthlyProductionPerPanel
+                .ToDictionary(kvp => kvp.Key, kvp => kvp.Value * numberOfPanels);
+        }
+
+        private decimal CalculateFloorHeatingConsumption(CombinedRequestDtoIn request)
+        {
+            if (!request.HasFloorHeating || request.FloorSquareMeters == null || request.FloorSquareMeters <= 0)
+            {
+                return 0;
+            }
+
+            var consumptionPerSquareMeter = _consumptionSettings.FloorHeatingConsumptionPerSquareMeter;
+            return request.FloorSquareMeters.Value * consumptionPerSquareMeter;
+        }
+
+        #endregion
+
+        #region Cost Calculations
 
         private decimal CalculateYearlyCost(decimal fixedPrice, decimal totalConsumption)
         {
+            if (fixedPrice <= 0 || totalConsumption <= 0)
+            {
+                _logger.LogError("Fixed price and total consumption must be positive numbers");
+                throw new ArgumentException("Fixed price and total consumption must be positive numbers.");
+            }
+
             return fixedPrice * totalConsumption / 100;
         }
 
-        private decimal CalculateYearlySpotPrice(IEnumerable<ElectricityPriceData> electricityPriceData, decimal totalConsumption)
+        private decimal CalculateYearlySpotPrice(List<ElectricityPriceData> electricityPriceData, decimal totalConsumption, WorkShiftType workShiftType)
         {
+            var hourlyWeights = _consumptionSettings.WorkShiftWeights[workShiftType];
+            decimal totalWeight = hourlyWeights.Sum(x => x.Value);
 
-            decimal totalSpotPriceCost = electricityPriceData.Where(data => data.Price > 0)
-                                                             .Sum(data => data.Price * (decimal)(data.EndDate - data.StartDate).TotalHours);
+            var hourlyConsumption = hourlyWeights.ToDictionary(
+                kvp => kvp.Key,
+                kvp => (totalConsumption * kvp.Value) / totalWeight);
 
-            int totalHours = (int)electricityPriceData.Sum(data => (data.EndDate - data.StartDate).TotalHours);
-            decimal averageSpotPricePerHour = totalSpotPriceCost / totalHours;
+            decimal totalSpotPriceCost = 0;
 
-            return averageSpotPricePerHour * totalConsumption / 100;
+            foreach (var data in electricityPriceData)
+            {
+                int hour = data.StartDate.Hour;
+                if (hourlyConsumption.ContainsKey(hour))
+                {
+                    decimal consumption = hourlyConsumption[hour];
+                    totalSpotPriceCost += (data.Price * consumption) / 100;
+                }
+            }
+
+            return totalSpotPriceCost;
         }
 
-        private decimal CalculateMonthlyAverageHourlySpotPrice(IEnumerable<ElectricityPriceData> electricityPriceData, int month)
+        private decimal CalculateAverageYearlySpotPrice(List<ElectricityPriceData> electricityPriceData)
+        {
+            var totalHours = electricityPriceData.Sum(data => (decimal)(data.EndDate - data.StartDate).TotalHours);
+            var totalSpotPrice = electricityPriceData.Sum(data => data.Price * (decimal)(data.EndDate - data.StartDate).TotalHours);
+
+            return totalSpotPrice / totalHours;
+        }
+
+        #endregion
+
+        #region Monthly Data Calculations
+
+        private async Task<List<MonthlyData>> CalculateMonthlyDataAsync(decimal totalAverageConsumption, List<ElectricityPriceData> electricityPriceData, decimal fixedPrice, int year, WorkShiftType workShiftType)
+        {
+            var monthlyData = new ConcurrentBag<MonthlyData>();
+
+            var tasks = Enumerable.Range(1, 12).Select(month => Task.Run(() =>
+            {
+                var consumption = totalAverageConsumption * _consumptionSettings.MonthlyWeights[month];
+                var spotPriceAverageOfMonth = CalculateMonthlyAverageHourlySpotPrice(electricityPriceData, month);
+
+                var fixedPriceTotal = Math.Round(consumption * fixedPrice, 2) / 100;
+
+                var monthlySpotPriceCost = CalculateMonthlySpotPrice(electricityPriceData, consumption, month, workShiftType);
+
+                var totalHoursInMonth = CalculateTotalHoursInMonth(year, month);
+                var averageConsumptionPerHour = Math.Round(consumption / totalHoursInMonth, 2);
+
+                var data = new MonthlyData
+                {
+                    Month = month,
+                    Consumption = Math.Round(consumption, 2),
+                    SpotPriceAverageOfMonth = Math.Round(spotPriceAverageOfMonth, 2),
+                    FixedPriceAverageOfMonth = fixedPrice,
+                    FixedPriceTotal = Math.Round(fixedPriceTotal, 2),
+                    SpotPriceTotal = Math.Round(monthlySpotPriceCost, 2),
+                    AverageConsumptionPerHour = Math.Round(averageConsumptionPerHour, 2)
+                };
+
+                monthlyData.Add(data);
+            }));
+
+            await Task.WhenAll(tasks);
+
+            return monthlyData.OrderBy(md => md.Month).ToList();
+        }
+
+        private decimal CalculateMonthlyAverageHourlySpotPrice(List<ElectricityPriceData> electricityPriceData, int month)
         {
             var monthData = electricityPriceData.Where(x => x.StartDate.Month == month);
             if (!monthData.Any()) return 0;
@@ -310,56 +372,39 @@ namespace ApplicationLayer.Services
             return totalSpotPrice / totalHours;
         }
 
+        private decimal CalculateMonthlySpotPrice(List<ElectricityPriceData> electricityPriceData, decimal monthlyConsumption, int month, WorkShiftType workShiftType)
+        {
+            var monthData = electricityPriceData.Where(x => x.StartDate.Month == month);
+
+            var hourlyWeights = _consumptionSettings.WorkShiftWeights[workShiftType];
+            decimal totalWeight = hourlyWeights.Sum(x => x.Value);
+
+            var hourlyConsumption = hourlyWeights.ToDictionary(
+                kvp => kvp.Key,
+                kvp => (monthlyConsumption * kvp.Value) / totalWeight);
+
+            decimal monthlySpotPriceCost = 0;
+
+            foreach (var data in monthData)
+            {
+                int hour = data.StartDate.Hour;
+                if (hourlyConsumption.ContainsKey(hour))
+                {
+                    decimal consumption = hourlyConsumption[hour];
+                    monthlySpotPriceCost += (data.Price * consumption) / 100;
+                }
+            }
+
+            return monthlySpotPriceCost;
+        }
+
         private decimal CalculateTotalHoursInMonth(int year, int month)
         {
             var daysInMonth = DateTime.DaysInMonth(year, month);
             return daysInMonth * 24;
         }
 
-        private decimal CalculateAverageYearlySpotPrice(IEnumerable<ElectricityPriceData> electricityPriceData)
-        {
-            var totalHours = electricityPriceData.Sum(data => (decimal)(data.EndDate - data.StartDate).TotalHours);
-            var totalSpotPrice = electricityPriceData.Sum(data => data.Price * (decimal)(data.EndDate - data.StartDate).TotalHours);
-
-            return totalSpotPrice / totalHours;
-        }
-
-        private List<MonthlyData> CalculateMonthlyDataAsync(decimal totalAverageConsumption, IEnumerable<ElectricityPriceData> electricityPriceData, decimal fixedPrice, decimal yearlySpotPriceCost, int year)
-        {
-            var monthlyWeights = new Dictionary<int, decimal>
-            {
-                { 1, 0.16M }, { 2, 0.14M }, { 3, 0.12M }, { 4, 0.10M },
-                { 5, 0.06M }, { 6, 0.04M }, { 7, 0.03M }, { 8, 0.04M },
-                { 9, 0.05M }, { 10, 0.08M }, { 11, 0.10M }, { 12, 0.08M }
-            };
-
-            var monthlyData = new List<MonthlyData>();
-
-            foreach (var month in Enumerable.Range(1, 12))
-            {
-                var consumption = totalAverageConsumption * monthlyWeights[month];
-                var spotPriceAverageOfMonth = CalculateMonthlyAverageHourlySpotPrice(electricityPriceData, month);
-
-                var fixedPriceTotal = Math.Round(consumption * fixedPrice, 2) / 100;
-
-                var monthlySpotPriceCost = yearlySpotPriceCost * (consumption / totalAverageConsumption);
-
-                var totalHoursInMonth = CalculateTotalHoursInMonth(year, month);
-                var averageConsumptionPerHour = Math.Round(consumption / totalHoursInMonth, 2);
-
-                monthlyData.Add(new MonthlyData
-                {
-                    Month = month,
-                    Consumption = Math.Round(consumption, 2),
-                    SpotPriceAverageOfMonth = Math.Round(spotPriceAverageOfMonth, 2),
-                    FixedPriceAverageOfMonth = fixedPrice,
-                    FixedPriceTotal = Math.Round(fixedPriceTotal, 2),
-                    SpotPriceTotal = Math.Round(monthlySpotPriceCost, 2),
-                    AverageConsumptionPerHour = Math.Round(averageConsumptionPerHour, 2)
-                });
-            }
-
-            return monthlyData;
-        }
+        #endregion
     }
+   
 }

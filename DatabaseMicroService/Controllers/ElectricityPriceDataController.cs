@@ -6,12 +6,10 @@ using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-
 namespace DatabaseMicroService.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
-    
     public class ElectricityPriceDataController : ControllerBase
     {
         private readonly ILogger<ElectricityPriceDataController> _logger;
@@ -19,23 +17,20 @@ namespace DatabaseMicroService.Controllers
         private readonly IDateRangeDataService _dateRangeDataService;
         private readonly IElectricityPriceService _electricityService;
         private readonly ICalculateFingridConsumptionPrice _calculateFinGridConsumptionPrice;
+
         public ElectricityPriceDataController(
             ILogger<ElectricityPriceDataController> logger,
             ISaveHistoryDataService saveHistoryDataService,
             IDateRangeDataService dateRangeDataService,
             IElectricityPriceService electricityService,
             ICalculateFingridConsumptionPrice calculateFingridConsumptionPrice)
-            
         {
             _logger = logger;
             _saveHistoryDataService = saveHistoryDataService;
             _dateRangeDataService = dateRangeDataService;
             _electricityService = electricityService;
             _calculateFinGridConsumptionPrice = calculateFingridConsumptionPrice;
-            
         }
-
-        
 
         [HttpPost("UploadHistoryData")]
         [Authorize]
@@ -89,56 +84,26 @@ namespace DatabaseMicroService.Controllers
             // Start a stopwatch to measure response time
             var stopwatch = Stopwatch.StartNew();
 
-            _logger.LogInformation("Request received: {Method} {Path}", HttpContext.Request.Method, HttpContext.Request.Path);
-            _logger.LogInformation("Query Parameters: {Query}", HttpContext.Request.QueryString);
-            _logger.LogInformation("Headers: {Headers}", JsonSerializer.Serialize(HttpContext.Request.Headers.ToDictionary(h => h.Key, h => h.Value.ToString())));
-
-            if (HttpContext.Request.Method == HttpMethods.Post || HttpContext.Request.Method == HttpMethods.Put)
-            {
-                using (var reader = new StreamReader(HttpContext.Request.Body))
-                {
-                    var body = await reader.ReadToEndAsync();
-                    _logger.LogInformation("Request Body: {Body}", body);
-                }
-            }
+            LogRequestDetails("upload Fingrid consumption file");
 
             if (file == null || file.Length == 0)
                 return BadRequest("File not provided.");
 
             var filePath = Path.Combine(Directory.GetCurrentDirectory(), file.FileName);
 
-            using (var stream = new FileStream(filePath, FileMode.Create))
-            {
-                await file.CopyToAsync(stream);
-            }
-
-            if (!fixedPrice.HasValue)
-            {
-                return BadRequest("Fixed price not received");
-            }
-
             try
             {
-                var (totalSpotPrice, totalFixedPrice, cheaperOption, totalConsumption, priceDifference, optimizedPriceDifference, equivalentFixedPrice, totalOptimizedSpotPrice, monthlyData, weeklyData, dailyData, startDate, endDate) = await _calculateFinGridConsumptionPrice.CalculateTotalConsumptionPricesAsync(filePath, fixedPrice);
-
-                var result = new
+                using (var stream = new FileStream(filePath, FileMode.Create))
                 {
-                    TotalSpotPrice = totalSpotPrice,
-                    TotalFixedPrice = totalFixedPrice,
-                    CheaperOption = cheaperOption,
-                    PriceDifference = priceDifference,
-                    OptimizedPriceDifference = optimizedPriceDifference,
-                    TotalConsumption = totalConsumption,
-                    EquivalentFixedPrice = equivalentFixedPrice,
-                    TotalOptimizedSpotPrice = totalOptimizedSpotPrice,
-                    MonthlyData = monthlyData,
-                    WeeklyData = weeklyData,
-                    DailyData = dailyData,
-                    StartDate = startDate,
-                    EndDate = endDate,
-                 
+                    await file.CopyToAsync(stream);
+                }
 
-                };
+                if (!fixedPrice.HasValue)
+                {
+                    return BadRequest("Fixed price not received");
+                }
+
+                var result = await _calculateFinGridConsumptionPrice.CalculateTotalConsumptionPricesAsync(filePath, fixedPrice);
 
                 // Stop the stopwatch and log the response time and status code
                 stopwatch.Stop();
@@ -169,36 +134,33 @@ namespace DatabaseMicroService.Controllers
             _logger.LogInformation("Headers: {Headers}", JsonSerializer.Serialize(HttpContext.Request.Headers.ToDictionary(h => h.Key, h => h.Value.ToString())));
         }
 
-
         [HttpPost("CalculatePriceAndConsumption")]
         public async Task<ActionResult> GetElectricityPricesData([FromQuery] CombinedRequestDtoIn request)
         {
             // Start a stopwatch to measure response time
             var stopwatch = Stopwatch.StartNew();
 
-            _logger.LogInformation("Request received: {Method} {Path}", HttpContext.Request.Method, HttpContext.Request.Path);
-            _logger.LogInformation("Query Parameters: {Query}", HttpContext.Request.QueryString);
-            _logger.LogInformation("Headers: {Headers}", JsonSerializer.Serialize(HttpContext.Request.Headers.ToDictionary(h => h.Key, h => h.Value.ToString())));
+            LogRequestDetails("calculate price and consumption");
             _logger.LogInformation("Request Body: {Request}", JsonSerializer.Serialize(request));
 
             try
             {
-                var (totalFixedPriceCost, totalSpotPriceCost, costDifference, cheaperOption, totalAverageConsumption, totalMinConsumption, totalMaxConsumption, averageHourlySpotPrice, monthlyData) =
-                    await _electricityService.GetElectricityPriceDataAsync(request);
+                // Updated to match the new method signature
+                var result = await _electricityService.GetElectricityPriceDataAsync(request);
 
                 var calculationYears = $"{request.Year - 1} - {request.Year}";
 
                 var response = new
                 {
-                    TotalFixedPriceCost = totalFixedPriceCost,
-                    TotalSpotPriceCost = totalSpotPriceCost,
-                    TotalDirectiveConsumption = totalAverageConsumption,
-                    EstimatedMinConsumption = totalMinConsumption,
-                    EstimatedMaxConsumption = totalMaxConsumption,
-                    CheaperOption = cheaperOption,
-                    CostDifference = costDifference,
-                    AverageHourlySpotPrice = averageHourlySpotPrice,
-                    MonthlyData = monthlyData,
+                    TotalFixedPriceCost = result.TotalFixedPriceCost,
+                    TotalSpotPriceCost = result.TotalSpotPriceCost,
+                    TotalDirectiveConsumption = result.AverageConsumption,
+                    EstimatedMinConsumption = result.MinConsumption,
+                    EstimatedMaxConsumption = result.MaxConsumption,
+                    CheaperOption = result.CheaperOption,
+                    CostDifference = result.CostDifference,
+                    AverageHourlySpotPrice = result.AverageHourlySpotPrice,
+                    MonthlyData = result.MonthlyData,
                     CalculationYears = calculationYears
                 };
 
