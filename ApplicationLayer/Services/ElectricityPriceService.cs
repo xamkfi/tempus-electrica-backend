@@ -50,7 +50,7 @@ namespace ApplicationLayer.Services
 
             // Calculate monthly data
             int lastMonthToConsider = endDate.Month; // Get the last month based on endDate
-            var monthlyData = await CalculateMonthlyDataAsync(consumptionResult.AverageConsumption, electricityPriceData, request.FixedPrice, request.Year, lastMonthToConsider);
+            var monthlyData = await CalculateMonthlyDataAsync(consumptionResult.AverageConsumption, electricityPriceData, request.FixedPrice, request.Year, endDate);
 
             var costDifference = Math.Round(Math.Abs(totalFixedPriceCost - totalSpotPriceCost), 2);
             var cheaperOption = totalFixedPriceCost < totalSpotPriceCost ? "Fixed price" : "Spot price";
@@ -113,16 +113,21 @@ namespace ApplicationLayer.Services
 
             if (year == DateTime.Now.Year)
             {
-                endDate = DateTime.Now.Date; // Current date for the current year
+                // The end date is for the current year, so we check if we need to move one month back
+                endDate = DateTime.Now.Date.AddMonths(-1); // Move one month back
+                                                           // Set the end date to the last day of that month
+                endDate = new DateTime(endDate.Year, endDate.Month, DateTime.DaysInMonth(endDate.Year, endDate.Month));
             }
             else
             {
-                endDate = new DateTime(year, 12, 31); // End of the year for previous years
+                // For past years, use the full year, i.e., December 31st of the selected year
+                endDate = new DateTime(year, 12, 31);
             }
 
             _logger.LogInformation("Determined end date as {EndDate} for year {Year}", endDate, year);
             return endDate;
         }
+
 
 
         #endregion
@@ -337,11 +342,20 @@ namespace ApplicationLayer.Services
 
         #region Monthly Data Calculations
 
-        private async Task<List<MonthlyData>> CalculateMonthlyDataAsync(decimal totalAverageConsumption, List<ElectricityPriceData> electricityPriceData, decimal fixedPrice, int year, int lastMonthToConsider)
+        private async Task<List<MonthlyData>> CalculateMonthlyDataAsync(decimal totalAverageConsumption, List<ElectricityPriceData> electricityPriceData, decimal fixedPrice, int year, DateTime endDate)
         {
             var monthlyData = new ConcurrentBag<MonthlyData>();
 
-            var tasks = Enumerable.Range(1, lastMonthToConsider).Select(month => Task.Run(() =>
+            // Use the endDate's month directly for current year
+            int endMonth = endDate.Month;
+
+            // If the endDate is December or full year past is selected, we consider all months of the specified year
+            if (endDate.Year > year)
+            {
+                endMonth = 12; // When data spills into the next year, we consider full 12 months for the selected year
+            }
+
+            var tasks = Enumerable.Range(1, endMonth).Select(month => Task.Run(() =>
             {
                 var consumption = totalAverageConsumption * _consumptionSettings.MonthlyWeights[month];
                 var spotPriceAverageOfMonth = CalculateMonthlyAverageHourlySpotPrice(electricityPriceData, month);
@@ -371,6 +385,7 @@ namespace ApplicationLayer.Services
 
             return monthlyData.OrderBy(md => md.Month).ToList();
         }
+
 
         private decimal CalculateMonthlyAverageHourlySpotPrice(List<ElectricityPriceData> electricityPriceData, int month)
         {
