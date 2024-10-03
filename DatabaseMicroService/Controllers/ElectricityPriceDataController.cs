@@ -157,17 +157,18 @@ namespace DatabaseMicroService.Controllers
                     TotalDirectiveConsumption = result.AverageConsumption,
                     EstimatedMinConsumption = result.MinConsumption,
                     EstimatedMaxConsumption = result.MaxConsumption,
-                    
+                    MinFixedPriceCost = result.MinFixedPriceCost,
+                    MaxFixedPriceCost = result.MaxFixedPriceCost,
+                    MinSpotPriceCost = result.MinSpotPriceCost,
+                    MaxSpotPriceCost = result.MaxSpotPriceCost,
+                    CalculationYears = calculationYears,
+
                     CheaperOption = result.CheaperOption,
                     CostDifference = result.CostDifference,
                     AverageHourlySpotPrice = result.AverageHourlySpotPrice,
                     MonthlyData = result.MonthlyData,
-                    CalculationYears = calculationYears,
 
-                    MinFixedPriceCost = result.MinFixedPriceCost,
-                    MinSpotPriceCost = result.MinSpotPriceCost,
-                    MaxFixedPriceCost = result.MaxFixedPriceCost,
-                    MaxSpotPriceCost = result.MaxSpotPriceCost,
+                   
                 };
 
                 var options = new JsonSerializerOptions
