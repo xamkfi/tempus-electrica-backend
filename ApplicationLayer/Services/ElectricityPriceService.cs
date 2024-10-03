@@ -30,7 +30,7 @@ namespace ApplicationLayer.Services
             ValidateRequest(request);
 
             var startDate = new DateTime(request.Year, 1, 1);
-            var endDate = DetermineEndDate(request.Year);
+            var endDate = DetermineEndDate(request.Year); // This now considers if the year is current or not
 
             _logger.LogInformation("Fetching electricity price data from {StartDate} to {EndDate}", startDate, endDate);
             var electricityPriceData = await FetchElectricityPriceDataAsync(startDate, endDate);
@@ -49,7 +49,8 @@ namespace ApplicationLayer.Services
             var maxSpotPriceCost = CalculateYearlySpotPrice(electricityPriceData, consumptionResult.MaxConsumption);
 
             // Calculate monthly data
-            var monthlyData = await CalculateMonthlyDataAsync(consumptionResult.AverageConsumption, electricityPriceData, request.FixedPrice, request.Year);
+            int lastMonthToConsider = endDate.Month; // Get the last month based on endDate
+            var monthlyData = await CalculateMonthlyDataAsync(consumptionResult.AverageConsumption, electricityPriceData, request.FixedPrice, request.Year, endDate);
 
             var costDifference = Math.Round(Math.Abs(totalFixedPriceCost - totalSpotPriceCost), 2);
             var cheaperOption = totalFixedPriceCost < totalSpotPriceCost ? "Fixed price" : "Spot price";
@@ -75,6 +76,7 @@ namespace ApplicationLayer.Services
             _logger.LogInformation("Completed processing GetElectricityPriceDataAsync for year {Year}", request.Year);
             return result;
         }
+
 
         #region Validation and Data Retrieval
 
@@ -107,10 +109,21 @@ namespace ApplicationLayer.Services
 
         private DateTime DetermineEndDate(int year)
         {
-            var endDate = year == DateTime.Now.Year ? DateTime.Now.Date : new DateTime(year, 12, 31);
+            DateTime endDate;
+
+            if (year == DateTime.Now.Year)
+            {
+                endDate = DateTime.Now.Date; // Current date for the current year
+            }
+            else
+            {
+                endDate = new DateTime(year, 12, 31); // End of the year for previous years
+            }
+
             _logger.LogInformation("Determined end date as {EndDate} for year {Year}", endDate, year);
             return endDate;
         }
+
 
         #endregion
 
@@ -324,11 +337,19 @@ namespace ApplicationLayer.Services
 
         #region Monthly Data Calculations
 
-        private async Task<List<MonthlyData>> CalculateMonthlyDataAsync(decimal totalAverageConsumption, List<ElectricityPriceData> electricityPriceData, decimal fixedPrice, int year)
+        private async Task<List<MonthlyData>> CalculateMonthlyDataAsync(decimal totalAverageConsumption, List<ElectricityPriceData> electricityPriceData, decimal fixedPrice, int year, DateTime endDate)
         {
             var monthlyData = new ConcurrentBag<MonthlyData>();
 
-            var tasks = Enumerable.Range(1, 12).Select(month => Task.Run(() =>
+            // Determine the end month for calculations (one month before end date)
+            int endMonth = endDate.Month - 1;
+            if (endMonth < 1)
+            {
+                endMonth = 12; // Handle the case if endMonth is 0, set it to December
+                year--; // Decrement the year as well
+            }
+
+            var tasks = Enumerable.Range(1, endMonth).Select(month => Task.Run(() =>
             {
                 var consumption = totalAverageConsumption * _consumptionSettings.MonthlyWeights[month];
                 var spotPriceAverageOfMonth = CalculateMonthlyAverageHourlySpotPrice(electricityPriceData, month);
@@ -378,6 +399,13 @@ namespace ApplicationLayer.Services
             decimal totalSpotPriceCost = monthData.Sum(data => data.Price * (decimal)(data.EndDate - data.StartDate).TotalHours);
 
             int totalHours = (int)monthData.Sum(data => (data.EndDate - data.StartDate).TotalHours);
+
+            // Check if totalHours is zero to avoid divide by zero exception
+            if (totalHours == 0)
+            {
+                _logger.LogWarning("Total hours for month {Month} is zero. Returning zero for monthly spot price.", month);
+                return 0; // or handle this case according to your business logic
+            }
 
             decimal averageSpotPricePerHour = totalSpotPriceCost / totalHours;
 

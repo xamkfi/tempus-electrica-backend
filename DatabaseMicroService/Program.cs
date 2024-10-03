@@ -47,10 +47,10 @@ public class Program
             .AddUserSecrets<Program>(); // This adds user secrets
 
 
-        var keyVaultManager = builder.Services.BuildServiceProvider().GetRequiredService<IKeyVaultSecretManager>();
-        var vaultSecret = await keyVaultManager.GetSecretAsync();
-        var dbConnectionString = vaultSecret.DbConnectionString;
-     
+        //var keyVaultManager = builder.Services.BuildServiceProvider().GetRequiredService<IKeyVaultSecretManager>();
+        //var vaultSecret = await keyVaultManager.GetSecretAsync();
+        var dbConnectionString = "Data Source=(localdb)\\MSSQLLocalDB;Initial Catalog=master;Integrated Security=True;Connect Timeout=30;Encrypt=False;Trust Server Certificate=False;Application Intent=ReadWrite;Multi Subnet Failover=False";
+
         // Register the DbContext with the connection string fetched from Key Vault
         builder.Services.AddDbContext<ElectricityDbContext>(options =>
             options.UseSqlServer(dbConnectionString));
