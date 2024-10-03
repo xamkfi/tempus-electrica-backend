@@ -50,7 +50,7 @@ namespace ApplicationLayer.Services
 
             // Calculate monthly data
             int lastMonthToConsider = endDate.Month; // Get the last month based on endDate
-            var monthlyData = await CalculateMonthlyDataAsync(consumptionResult.AverageConsumption, electricityPriceData, request.FixedPrice, request.Year, endDate);
+            var monthlyData = await CalculateMonthlyDataAsync(consumptionResult.AverageConsumption, electricityPriceData, request.FixedPrice, request.Year, lastMonthToConsider);
 
             var costDifference = Math.Round(Math.Abs(totalFixedPriceCost - totalSpotPriceCost), 2);
             var cheaperOption = totalFixedPriceCost < totalSpotPriceCost ? "Fixed price" : "Spot price";
@@ -337,19 +337,11 @@ namespace ApplicationLayer.Services
 
         #region Monthly Data Calculations
 
-        private async Task<List<MonthlyData>> CalculateMonthlyDataAsync(decimal totalAverageConsumption, List<ElectricityPriceData> electricityPriceData, decimal fixedPrice, int year, DateTime endDate)
+        private async Task<List<MonthlyData>> CalculateMonthlyDataAsync(decimal totalAverageConsumption, List<ElectricityPriceData> electricityPriceData, decimal fixedPrice, int year, int lastMonthToConsider)
         {
             var monthlyData = new ConcurrentBag<MonthlyData>();
 
-            // Determine the end month for calculations (one month before end date)
-            int endMonth = endDate.Month - 1;
-            if (endMonth < 1)
-            {
-                endMonth = 12; // Handle the case if endMonth is 0, set it to December
-                year--; // Decrement the year as well
-            }
-
-            var tasks = Enumerable.Range(1, endMonth).Select(month => Task.Run(() =>
+            var tasks = Enumerable.Range(1, lastMonthToConsider).Select(month => Task.Run(() =>
             {
                 var consumption = totalAverageConsumption * _consumptionSettings.MonthlyWeights[month];
                 var spotPriceAverageOfMonth = CalculateMonthlyAverageHourlySpotPrice(electricityPriceData, month);
