@@ -42,6 +42,12 @@ namespace ApplicationLayer.Services
             var totalFixedPriceCost = CalculateYearlyCost(request.FixedPrice, consumptionResult.AverageConsumption);
             var totalSpotPriceCost = CalculateYearlySpotPrice(electricityPriceData, consumptionResult.AverageConsumption);
 
+            // Calculate costs for min and max consumption
+            var minFixedPriceCost = CalculateYearlyCost(request.FixedPrice, consumptionResult.MinConsumption);
+            var maxFixedPriceCost = CalculateYearlyCost(request.FixedPrice, consumptionResult.MaxConsumption);
+            var minSpotPriceCost = CalculateYearlySpotPrice(electricityPriceData, consumptionResult.MinConsumption);
+            var maxSpotPriceCost = CalculateYearlySpotPrice(electricityPriceData, consumptionResult.MaxConsumption);
+
             // Calculate monthly data
             var monthlyData = await CalculateMonthlyDataAsync(consumptionResult.AverageConsumption, electricityPriceData, request.FixedPrice, request.Year);
 
@@ -59,7 +65,11 @@ namespace ApplicationLayer.Services
                 MinConsumption = Math.Round(consumptionResult.MinConsumption, 2),
                 MaxConsumption = Math.Round(consumptionResult.MaxConsumption, 2),
                 AverageHourlySpotPrice = Math.Round(averageHourlySpotPrice, 2),
-                MonthlyData = monthlyData
+                MonthlyData = monthlyData,
+                MinFixedPriceCost = Math.Round(minFixedPriceCost, 2),
+                MaxFixedPriceCost = Math.Round(maxFixedPriceCost, 2),
+                MinSpotPriceCost = Math.Round(minSpotPriceCost, 2),
+                MaxSpotPriceCost = Math.Round(maxSpotPriceCost, 2)
             };
 
             _logger.LogInformation("Completed processing GetElectricityPriceDataAsync for year {Year}", request.Year);
