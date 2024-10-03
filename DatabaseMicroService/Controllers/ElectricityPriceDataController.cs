@@ -148,7 +148,7 @@ namespace DatabaseMicroService.Controllers
                 // Updated to match the new method signature
                 var result = await _electricityService.GetElectricityPriceDataAsync(request);
 
-                var calculationYears = $"{request.Year - 1} - {request.Year}";
+                var calculationYears = $"{request.Year } - {request.Year + 1}";
 
                 var response = new
                 {
