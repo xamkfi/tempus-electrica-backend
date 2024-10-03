@@ -101,8 +101,8 @@ namespace TestProject.Application
             Assert.Equal(8.00M, request.FixedPrice);
             Assert.Equal(2023, request.Year);
 
-            Assert.Equal(1893.76M, result.TotalFixedPriceCost);
-            Assert.Equal(23672M, result.AverageConsumption);
+            Assert.Equal(1068.12M, result.TotalFixedPriceCost);
+            Assert.Equal(13351.5M, result.AverageConsumption);
         }
 
         [Fact]
