@@ -46,11 +46,9 @@ public class Program
             .AddEnvironmentVariables()
             .AddUserSecrets<Program>(); // This adds user secrets
 
-
         var keyVaultManager = builder.Services.BuildServiceProvider().GetRequiredService<IKeyVaultSecretManager>();
         var vaultSecret = await keyVaultManager.GetSecretAsync();
         var dbConnectionString = vaultSecret.DbConnectionString;
-     
         // Register the DbContext with the connection string fetched from Key Vault
         builder.Services.AddDbContext<ElectricityDbContext>(options =>
             options.UseSqlServer(dbConnectionString));

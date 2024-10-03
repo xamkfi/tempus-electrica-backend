@@ -148,7 +148,7 @@ namespace DatabaseMicroService.Controllers
                 // Updated to match the new method signature
                 var result = await _electricityService.GetElectricityPriceDataAsync(request);
 
-                var calculationYears = $"{request.Year - 1} - {request.Year}";
+                var calculationYears = $"{request.Year } - {request.Year + 1}";
 
                 var response = new
                 {
@@ -157,11 +157,18 @@ namespace DatabaseMicroService.Controllers
                     TotalDirectiveConsumption = result.AverageConsumption,
                     EstimatedMinConsumption = result.MinConsumption,
                     EstimatedMaxConsumption = result.MaxConsumption,
+                    MinFixedPriceCost = result.MinFixedPriceCost,
+                    MaxFixedPriceCost = result.MaxFixedPriceCost,
+                    MinSpotPriceCost = result.MinSpotPriceCost,
+                    MaxSpotPriceCost = result.MaxSpotPriceCost,
+                    CalculationYears = calculationYears,
+
                     CheaperOption = result.CheaperOption,
                     CostDifference = result.CostDifference,
                     AverageHourlySpotPrice = result.AverageHourlySpotPrice,
                     MonthlyData = result.MonthlyData,
-                    CalculationYears = calculationYears
+
+                   
                 };
 
                 var options = new JsonSerializerOptions

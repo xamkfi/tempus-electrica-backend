@@ -30,7 +30,7 @@ namespace ApplicationLayer.Services
             ValidateRequest(request);
 
             var startDate = new DateTime(request.Year, 1, 1);
-            var endDate = DetermineEndDate(request.Year);
+            var endDate = DetermineEndDate(request.Year); // This now considers if the year is current or not
 
             _logger.LogInformation("Fetching electricity price data from {StartDate} to {EndDate}", startDate, endDate);
             var electricityPriceData = await FetchElectricityPriceDataAsync(startDate, endDate);
@@ -40,10 +40,17 @@ namespace ApplicationLayer.Services
 
             // Calculate costs
             var totalFixedPriceCost = CalculateYearlyCost(request.FixedPrice, consumptionResult.AverageConsumption);
-            var totalSpotPriceCost = CalculateYearlySpotPrice(electricityPriceData, consumptionResult.AverageConsumption, request.WorkShiftType);
+            var totalSpotPriceCost = CalculateYearlySpotPrice(electricityPriceData, consumptionResult.AverageConsumption);
+
+            // Calculate costs for min and max consumption
+            var minFixedPriceCost = CalculateYearlyCost(request.FixedPrice, consumptionResult.MinConsumption);
+            var maxFixedPriceCost = CalculateYearlyCost(request.FixedPrice, consumptionResult.MaxConsumption);
+            var minSpotPriceCost = CalculateYearlySpotPrice(electricityPriceData, consumptionResult.MinConsumption);
+            var maxSpotPriceCost = CalculateYearlySpotPrice(electricityPriceData, consumptionResult.MaxConsumption);
 
             // Calculate monthly data
-            var monthlyData = await CalculateMonthlyDataAsync(consumptionResult.AverageConsumption, electricityPriceData, request.FixedPrice, request.Year, request.WorkShiftType);
+            int lastMonthToConsider = endDate.Month; // Get the last month based on endDate
+            var monthlyData = await CalculateMonthlyDataAsync(consumptionResult.AverageConsumption, electricityPriceData, request.FixedPrice, request.Year, endDate);
 
             var costDifference = Math.Round(Math.Abs(totalFixedPriceCost - totalSpotPriceCost), 2);
             var cheaperOption = totalFixedPriceCost < totalSpotPriceCost ? "Fixed price" : "Spot price";
@@ -59,12 +66,17 @@ namespace ApplicationLayer.Services
                 MinConsumption = Math.Round(consumptionResult.MinConsumption, 2),
                 MaxConsumption = Math.Round(consumptionResult.MaxConsumption, 2),
                 AverageHourlySpotPrice = Math.Round(averageHourlySpotPrice, 2),
-                MonthlyData = monthlyData
+                MonthlyData = monthlyData,
+                MinFixedPriceCost = Math.Round(minFixedPriceCost, 2),
+                MaxFixedPriceCost = Math.Round(maxFixedPriceCost, 2),
+                MinSpotPriceCost = Math.Round(minSpotPriceCost, 2),
+                MaxSpotPriceCost = Math.Round(maxSpotPriceCost, 2)
             };
 
             _logger.LogInformation("Completed processing GetElectricityPriceDataAsync for year {Year}", request.Year);
             return result;
         }
+
 
         #region Validation and Data Retrieval
 
@@ -97,10 +109,26 @@ namespace ApplicationLayer.Services
 
         private DateTime DetermineEndDate(int year)
         {
-            var endDate = year == DateTime.Now.Year ? DateTime.Now.Date : new DateTime(year, 12, 31);
+            DateTime endDate;
+
+            if (year == DateTime.Now.Year)
+            {
+                // The end date is for the current year, so we check if we need to move one month back
+                endDate = DateTime.Now.Date.AddMonths(-1); // Move one month back
+                                                           // Set the end date to the last day of that month
+                endDate = new DateTime(endDate.Year, endDate.Month, DateTime.DaysInMonth(endDate.Year, endDate.Month));
+            }
+            else
+            {
+                // For past years, use the full year, i.e., December 31st of the selected year
+                endDate = new DateTime(year, 12, 31);
+            }
+
             _logger.LogInformation("Determined end date as {EndDate} for year {Year}", endDate, year);
             return endDate;
         }
+
+
 
         #endregion
 
@@ -152,9 +180,9 @@ namespace ApplicationLayer.Services
             return houseType switch
             {
                 HouseType.ApartmentHouse => (squareMeters * 20, squareMeters * 25, squareMeters * 30),
-                HouseType.TerracedHouse => (squareMeters * 30, squareMeters * 35, squareMeters * 40),
-                HouseType.DetachedHouse => (squareMeters * 40, squareMeters * 45, squareMeters * 50),
-                HouseType.Cottage => (squareMeters * 35, squareMeters * 40, squareMeters * 45),
+                HouseType.TerracedHouse => (squareMeters * 100, squareMeters * 110, squareMeters * 120),
+                HouseType.DetachedHouse => (squareMeters * 115, squareMeters * 130, squareMeters * 145),
+                HouseType.Cottage => (squareMeters * 110, squareMeters * 120, squareMeters * 130),
                 _ => throw new ArgumentException("Invalid house type")
             };
         }
@@ -163,9 +191,9 @@ namespace ApplicationLayer.Services
         {
             return workShiftType switch
             {
-                WorkShiftType.DayWorker => 2M,
-                WorkShiftType.ShiftWorker => 3M,
-                WorkShiftType.RemoteWorker => 5M,
+                WorkShiftType.DayWorker => 0.3M,
+                WorkShiftType.ShiftWorker => 0.4M,
+                WorkShiftType.RemoteWorker => 0.5M,
                 _ => throw new ArgumentException("Invalid work shift type")
             };
         }
@@ -223,9 +251,9 @@ namespace ApplicationLayer.Services
 
             return houseType switch
             {
-                HouseType.ApartmentHouse => (numberOfResidents * 1000, numberOfResidents * 1500, numberOfResidents * 2000),
-                HouseType.TerracedHouse => (numberOfResidents * 1200, numberOfResidents * 1700, numberOfResidents * 2200),
-                HouseType.DetachedHouse => (numberOfResidents * 1500, numberOfResidents * 2000, numberOfResidents * 2500),
+                HouseType.ApartmentHouse => (numberOfResidents * 300, numberOfResidents * 400, numberOfResidents * 500),
+                HouseType.TerracedHouse => (numberOfResidents * 500, numberOfResidents * 600, numberOfResidents * 700),
+                HouseType.DetachedHouse => (numberOfResidents * 500, numberOfResidents * 600, numberOfResidents * 700),
                 _ => throw new ArgumentException("Invalid house type")
             };
         }
@@ -239,10 +267,10 @@ namespace ApplicationLayer.Services
 
             return request.HeatingType switch
             {
-                HeatingType.ElectricHeating => (10000, 15000, 20000),
-                HeatingType.DistrictHeating => (8000, 12000, 16000),
-                HeatingType.GeothermalHeating => (5000, 7500, 10000),
-                HeatingType.OilHeating => (8000, 12000, 16000),
+                HeatingType.ElectricHeating => (700, 1000, 1300),
+                HeatingType.DistrictHeating => (650, 800, 950),
+                HeatingType.GeothermalHeating => (400, 500, 600),
+                HeatingType.OilHeating => (400, 500, 600),
                 _ => throw new ArgumentException("Invalid heating type")
             };
         }
@@ -290,28 +318,16 @@ namespace ApplicationLayer.Services
             return fixedPrice * totalConsumption / 100;
         }
 
-        private decimal CalculateYearlySpotPrice(List<ElectricityPriceData> electricityPriceData, decimal totalConsumption, WorkShiftType workShiftType)
+        private decimal CalculateYearlySpotPrice(IEnumerable<ElectricityPriceData> electricityPriceData, decimal totalConsumption)
         {
-            var hourlyWeights = _consumptionSettings.WorkShiftWeights[workShiftType];
-            decimal totalWeight = hourlyWeights.Sum(x => x.Value);
 
-            var hourlyConsumption = hourlyWeights.ToDictionary(
-                kvp => kvp.Key,
-                kvp => (totalConsumption * kvp.Value) / totalWeight);
+            decimal totalSpotPriceCost = electricityPriceData.Where(data => data.Price > 0)
+                                                             .Sum(data => data.Price * (decimal)(data.EndDate - data.StartDate).TotalHours);
 
-            decimal totalSpotPriceCost = 0;
+            int totalHours = (int)electricityPriceData.Sum(data => (data.EndDate - data.StartDate).TotalHours);
+            decimal averageSpotPricePerHour = totalSpotPriceCost / totalHours;
 
-            foreach (var data in electricityPriceData)
-            {
-                int hour = data.StartDate.Hour;
-                if (hourlyConsumption.ContainsKey(hour))
-                {
-                    decimal consumption = hourlyConsumption[hour];
-                    totalSpotPriceCost += (data.Price * consumption) / 100;
-                }
-            }
-
-            return totalSpotPriceCost;
+            return averageSpotPricePerHour * totalConsumption / 100;
         }
 
         private decimal CalculateAverageYearlySpotPrice(List<ElectricityPriceData> electricityPriceData)
@@ -326,18 +342,27 @@ namespace ApplicationLayer.Services
 
         #region Monthly Data Calculations
 
-        private async Task<List<MonthlyData>> CalculateMonthlyDataAsync(decimal totalAverageConsumption, List<ElectricityPriceData> electricityPriceData, decimal fixedPrice, int year, WorkShiftType workShiftType)
+        private async Task<List<MonthlyData>> CalculateMonthlyDataAsync(decimal totalAverageConsumption, List<ElectricityPriceData> electricityPriceData, decimal fixedPrice, int year, DateTime endDate)
         {
             var monthlyData = new ConcurrentBag<MonthlyData>();
 
-            var tasks = Enumerable.Range(1, 12).Select(month => Task.Run(() =>
+            // Use the endDate's month directly for current year
+            int endMonth = endDate.Month;
+
+            // If the endDate is December or full year past is selected, we consider all months of the specified year
+            if (endDate.Year > year)
+            {
+                endMonth = 12; // When data spills into the next year, we consider full 12 months for the selected year
+            }
+
+            var tasks = Enumerable.Range(1, endMonth).Select(month => Task.Run(() =>
             {
                 var consumption = totalAverageConsumption * _consumptionSettings.MonthlyWeights[month];
                 var spotPriceAverageOfMonth = CalculateMonthlyAverageHourlySpotPrice(electricityPriceData, month);
 
                 var fixedPriceTotal = Math.Round(consumption * fixedPrice, 2) / 100;
 
-                var monthlySpotPriceCost = CalculateMonthlySpotPrice(electricityPriceData, consumption, month, workShiftType);
+                var monthlySpotPriceCost = CalculateMonthlySpotPrice(electricityPriceData, consumption, month);
 
                 var totalHoursInMonth = CalculateTotalHoursInMonth(year, month);
                 var averageConsumptionPerHour = Math.Round(consumption / totalHoursInMonth, 2);
@@ -361,6 +386,7 @@ namespace ApplicationLayer.Services
             return monthlyData.OrderBy(md => md.Month).ToList();
         }
 
+
         private decimal CalculateMonthlyAverageHourlySpotPrice(List<ElectricityPriceData> electricityPriceData, int month)
         {
             var monthData = electricityPriceData.Where(x => x.StartDate.Month == month);
@@ -372,31 +398,27 @@ namespace ApplicationLayer.Services
             return totalSpotPrice / totalHours;
         }
 
-        private decimal CalculateMonthlySpotPrice(List<ElectricityPriceData> electricityPriceData, decimal monthlyConsumption, int month, WorkShiftType workShiftType)
+        private decimal CalculateMonthlySpotPrice(IEnumerable<ElectricityPriceData> electricityPriceData, decimal monthlyConsumption, int month)
         {
-            var monthData = electricityPriceData.Where(x => x.StartDate.Month == month);
+            // Filter the data for the specific month
+            var monthData = electricityPriceData.Where(x => x.StartDate.Month == month && x.Price > 0);
 
-            var hourlyWeights = _consumptionSettings.WorkShiftWeights[workShiftType];
-            decimal totalWeight = hourlyWeights.Sum(x => x.Value);
+            decimal totalSpotPriceCost = monthData.Sum(data => data.Price * (decimal)(data.EndDate - data.StartDate).TotalHours);
 
-            var hourlyConsumption = hourlyWeights.ToDictionary(
-                kvp => kvp.Key,
-                kvp => (monthlyConsumption * kvp.Value) / totalWeight);
+            int totalHours = (int)monthData.Sum(data => (data.EndDate - data.StartDate).TotalHours);
 
-            decimal monthlySpotPriceCost = 0;
-
-            foreach (var data in monthData)
+            // Check if totalHours is zero to avoid divide by zero exception
+            if (totalHours == 0)
             {
-                int hour = data.StartDate.Hour;
-                if (hourlyConsumption.ContainsKey(hour))
-                {
-                    decimal consumption = hourlyConsumption[hour];
-                    monthlySpotPriceCost += (data.Price * consumption) / 100;
-                }
+                _logger.LogWarning("Total hours for month {Month} is zero. Returning zero for monthly spot price.", month);
+                return 0; // or handle this case according to your business logic
             }
 
-            return monthlySpotPriceCost;
+            decimal averageSpotPricePerHour = totalSpotPriceCost / totalHours;
+
+            return averageSpotPricePerHour * monthlyConsumption / 100;
         }
+
 
         private decimal CalculateTotalHoursInMonth(int year, int month)
         {
@@ -406,5 +428,4 @@ namespace ApplicationLayer.Services
 
         #endregion
     }
-   
 }
