@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using Moq;
 using System.Collections.Concurrent;
 using System.Globalization;
+using ApplicationLayer.Dto;
 
 namespace TestProject.Application
 {
@@ -46,75 +47,67 @@ namespace TestProject.Application
             var csvFilePath = "nonexistentfile.csv";
             decimal fixedPrice = 0.20m;
 
-            var (totalSpotPrice, totalFixedPrice, cheaperOption, _, _, _, equivalentFixedPrice,_, _, _, _, _, _) = await _calculateFingridConsumptionPrice.CalculateTotalConsumptionPricesAsync(csvFilePath, fixedPrice);
+            var result = await _calculateFingridConsumptionPrice.CalculateTotalConsumptionPricesAsync(csvFilePath, fixedPrice);
 
-
-            Assert.Equal(0, totalSpotPrice);
-            Assert.Equal(0, totalFixedPrice);
-            Assert.Equal("Error calculating data, or no data were found", cheaperOption);
-            Assert.Equal(0, equivalentFixedPrice);
+            Assert.Equal(0, result.TotalSpotPrice);
+            Assert.Equal(0, result.TotalFixedPrice);
+            Assert.Equal("Error calculating data, or no data were found", result.CheaperOption);
+            Assert.Equal(0, result.EquivalentFixedPrice);
         }
 
         [Fact]
         public async Task CalculatePricesAsync_InvalidCsvFormat_EmptyResult()
         {
-            
             var csvData = "Invalid data\n";
             var csvFilePath = "invaliddata_20230531_20230601.csv";
 
             await File.WriteAllTextAsync(csvFilePath, csvData);
             decimal fixedPrice = 0.20m;
 
-            
-            var (totalSpotPrice, totalFixedPrice, cheaperOption, _, _, _, equivalentFixedPrice, _, _, _, _, _, _) = await _calculateFingridConsumptionPrice.CalculateTotalConsumptionPricesAsync(csvFilePath, fixedPrice);
+            var result = await _calculateFingridConsumptionPrice.CalculateTotalConsumptionPricesAsync(csvFilePath, fixedPrice);
 
-            Assert.Equal(0, totalSpotPrice);
-            Assert.Equal(0, totalFixedPrice);
-            Assert.Equal("Error calculating data, or no data were found", cheaperOption);
-            Assert.Equal(0, equivalentFixedPrice);
+            Assert.Equal(0, result.TotalSpotPrice);
+            Assert.Equal(0, result.TotalFixedPrice);
+            Assert.Equal("Error calculating data, or no data were found", result.CheaperOption);
+            Assert.Equal(0, result.EquivalentFixedPrice);
 
-            File.Delete(csvFilePath); 
+            File.Delete(csvFilePath);
         }
 
         [Fact]
         public async Task CalculateTotalConsumptionPricesAsync_ValidCsvFilePath_ReturnsCorrectResult()
         {
-            
             var csvData = MockCsvData();
             var csvFilePath = "validdata_20240601_20240602.csv";
             await File.WriteAllTextAsync(csvFilePath, csvData);
             decimal fixedPrice = 7.5M;
 
-            var(totalSpotPrice, totalFixedPrice, cheaperOption, totalConsumption, priceDifference, _, _,_, monthlyData, weeklyData, dailyData, _, _) = await _calculateFingridConsumptionPrice.CalculateTotalConsumptionPricesAsync(csvFilePath, fixedPrice);
+            var result = await _calculateFingridConsumptionPrice.CalculateTotalConsumptionPricesAsync(csvFilePath, fixedPrice);
 
-            Assert.Equal(55.8M, totalSpotPrice);  
-            Assert.Equal(31.5M, totalFixedPrice); 
-            Assert.Equal("FixedPrice", cheaperOption);
-            Assert.Equal(420.0M, totalConsumption);
-            Assert.Equal(24.3M, priceDifference);
-            Assert.Single(monthlyData);
-            Assert.Single(weeklyData);
-            Assert.Single(dailyData);
+            Assert.Equal(55.8M, result.TotalSpotPrice);
+            Assert.Equal(31.5M, result.TotalFixedPrice);
+            Assert.Equal("FixedPrice", result.CheaperOption);
+            Assert.Equal(420.0M, result.TotalConsumption);
+            Assert.Equal(24.3M, result.PriceDifference);
+            Assert.Single(result.MonthlyData);
+            Assert.Single(result.WeeklyData);
+            Assert.Single(result.DailyData);
 
-            File.Delete(csvFilePath); 
+            File.Delete(csvFilePath);
         }
-
 
         [Fact]
         public void OptimizeConsumption_ShouldMove25PercentOfAfternoonConsumptionToMorning()
         {
             //Arrange
             var loggerMock = new Mock<ILogger<CalculateFinGridConsumptionPriceService>>();
-            var service = new CalculateFinGridConsumptionPriceService(_electricityRepositoryMock.Object, loggerMock.Object); // Pass the mock logger
+            var service = new CalculateFinGridConsumptionPriceService(_electricityRepositoryMock.Object, loggerMock.Object);
 
             var hourlyConsumption = new ConcurrentDictionary<DateTime, decimal>
             {
-                //Afternoon consumption
                 [new DateTime(2024, 9, 16, 13, 0, 0)] = 100, // 25% = 25
                 [new DateTime(2024, 9, 16, 14, 0, 0)] = 200, // 25% = 50
                 [new DateTime(2024, 9, 16, 15, 0, 0)] = 300, // 25% = 75
-
-                //Morning consumption (should receive the 25% moved from afternoon)
                 [new DateTime(2024, 9, 17, 01, 0, 0)] = 0,
                 [new DateTime(2024, 9, 17, 02, 0, 0)] = 0,
                 [new DateTime(2024, 9, 17, 03, 0, 0)] = 0
@@ -124,23 +117,12 @@ namespace TestProject.Application
             var optimizedConsumption = service.OptimizeConsumption(hourlyConsumption);
 
             //Assert
-            //Verify that 25% of the consumption from 13:00-15:00 has been moved to the morning period (01:00-03:00)
             Assert.Equal(25, optimizedConsumption[new DateTime(2024, 9, 17, 01, 0, 0)]); // 25% from 13:00
             Assert.Equal(50, optimizedConsumption[new DateTime(2024, 9, 17, 02, 0, 0)]); // 25% from 14:00
             Assert.Equal(75, optimizedConsumption[new DateTime(2024, 9, 17, 03, 0, 0)]); // 25% from 15:00
-
-            //Verify that the afternoon values have been reduced by the moved amounts
             Assert.Equal(75, optimizedConsumption[new DateTime(2024, 9, 16, 13, 0, 0)]); // 100 - 25
             Assert.Equal(150, optimizedConsumption[new DateTime(2024, 9, 16, 14, 0, 0)]); // 200 - 50
             Assert.Equal(225, optimizedConsumption[new DateTime(2024, 9, 16, 15, 0, 0)]); // 300 - 75
         }
-
-
-
-
-
-
-
-
     }
 }
