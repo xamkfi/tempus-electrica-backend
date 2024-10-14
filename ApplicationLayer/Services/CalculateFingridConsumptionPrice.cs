@@ -101,10 +101,15 @@ namespace ApplicationLayer.Services
                     return GetDefaultResult();
                 }
 
-                var (totalSpotPrice, totalFixedPrice, totalConsumption, monthlyData, weeklyData, dailyData) =
+                decimal totalSpotPrice, totalFixedPrice, totalConsumption;
+                Dictionary<(int Month, int Year), MonthlyConsumptionData> monthlyData;
+                Dictionary<(int Week, int Year), WeeklyConsumptionData> weeklyData;
+                Dictionary<DateTime, DailyConsumptionData> dailyData;
+
+                (totalSpotPrice, totalFixedPrice, totalConsumption, monthlyData, weeklyData, dailyData) =
                     ProcessCsvData(hourlyConsumption, electricityPrices, fixedPrice);
 
-                var cheaperOption = DetermineCheaperOption(totalSpotPrice, totalFixedPrice, fixedPrice);
+                PriceOption cheaperOption = DetermineCheaperOption(totalSpotPrice, totalFixedPrice, fixedPrice);
                 var priceDifference = Math.Abs(totalSpotPrice - totalFixedPrice) / 100;
                 var equivalentFixedPrice = cheaperOption == PriceOption.SpotPrice ? totalSpotPrice / totalConsumption * 100 : 0;
 
