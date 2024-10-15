@@ -5,26 +5,26 @@ using System.Collections.Concurrent;
 using ApplicationLayer.Dto;
 using Domain.Entities;
 
-
 namespace ApplicationLayer.Services
 {
     public class CalculateFinGridConsumptionPriceService : ICalculateFingridConsumptionPrice
     {
         private readonly IElectricityRepository _electricityRepository;
         private readonly ILogger<CalculateFinGridConsumptionPriceService> _logger;
-
-        public CalculateFinGridConsumptionPriceService(IElectricityRepository electricityRepository, ILogger<CalculateFinGridConsumptionPriceService> logger)
-        {
-            _electricityRepository = electricityRepository;
-            _logger = logger;
-        }
         public enum PriceOption
         {
             FixedPrice,
             SpotPrice,
             Error
         }
+
         const decimal OptimizePercentage = 0.25M;
+
+        public CalculateFinGridConsumptionPriceService(IElectricityRepository electricityRepository, ILogger<CalculateFinGridConsumptionPriceService> logger)
+        {
+            _electricityRepository = electricityRepository;
+            _logger = logger;
+        }
 
         public async Task<ConsumptionPriceCalculationResult> CalculateTotalConsumptionPricesAsync(
             string csvFilePath,
@@ -48,7 +48,7 @@ namespace ApplicationLayer.Services
 
                 using (var reader = new StreamReader(csvFilePath))
                 {
-                    var headerLine = await reader.ReadLineAsync(); //Skip header
+                    var headerLine = await reader.ReadLineAsync(); // Skip header
                     var firstLine = await reader.ReadLineAsync();
                     if (firstLine == null)
                     {
@@ -62,11 +62,12 @@ namespace ApplicationLayer.Services
                         _logger.LogWarning("Invalid timestamp in the first line.");
                         return GetDefaultResult();
                     }
-                    //Initialize startDate and endDate with the first timestamp
+
+                    // Initialize startDate and endDate with the first timestamp
                     startDate = firstTimestamp;
                     endDate = firstTimestamp;
 
-                    //Add the first consumption value to the dictionary
+                    // Add the first consumption value to the dictionary
                     hourlyConsumption.TryAdd(firstTimestamp, firstConsumption);
 
                     string line;
@@ -101,40 +102,34 @@ namespace ApplicationLayer.Services
                     return GetDefaultResult();
                 }
 
-                decimal totalSpotPrice, totalFixedPrice, totalConsumption;
-                Dictionary<(int Month, int Year), MonthlyConsumptionData> monthlyData;
-                Dictionary<(int Week, int Year), WeeklyConsumptionData> weeklyData;
-                Dictionary<DateTime, DailyConsumptionData> dailyData;
+                var processedData = ProcessCsvData(hourlyConsumption, electricityPrices, fixedPrice);
 
-                (totalSpotPrice, totalFixedPrice, totalConsumption, monthlyData, weeklyData, dailyData) =
-                    ProcessCsvData(hourlyConsumption, electricityPrices, fixedPrice);
-
-                PriceOption cheaperOption = DetermineCheaperOption(totalSpotPrice, totalFixedPrice, fixedPrice);
-                var priceDifference = Math.Abs(totalSpotPrice - totalFixedPrice) / 100;
-                var equivalentFixedPrice = cheaperOption == PriceOption.SpotPrice ? totalSpotPrice / totalConsumption * 100 : 0;
+                PriceOption cheaperOption = DetermineCheaperOption(processedData.TotalSpotPrice, processedData.TotalFixedPrice, fixedPrice);
+                var priceDifference = Math.Abs(processedData.TotalSpotPrice - processedData.TotalFixedPrice) / 100;
+                var equivalentFixedPrice = cheaperOption == PriceOption.SpotPrice ? processedData.TotalSpotPrice / processedData.TotalConsumption * 100 : 0;
 
                 var optimizedConsumption = OptimizeConsumption(hourlyConsumption);
                 var totalOptimizedSpotPrice = optimizedConsumption.Sum(x => CalculatePricesForConsumption(x.Key, x.Value, electricityPrices)) / 100;
 
                 var optimizedPriceDifference = cheaperOption == PriceOption.SpotPrice
-                    ? Math.Abs(totalOptimizedSpotPrice - (fixedPrice ?? 0) * totalConsumption / 100)
-                    : Math.Abs(totalOptimizedSpotPrice - totalFixedPrice / 100);
+                    ? Math.Abs(totalOptimizedSpotPrice - (fixedPrice ?? 0) * processedData.TotalConsumption / 100)
+                    : Math.Abs(totalOptimizedSpotPrice - processedData.TotalFixedPrice / 100);
 
                 _logger.LogInformation("Calculation completed successfully.");
 
                 return new ConsumptionPriceCalculationResult
                 {
-                    TotalSpotPrice = totalSpotPrice / 100,
-                    TotalFixedPrice = totalFixedPrice / 100,
+                    TotalSpotPrice = processedData.TotalSpotPrice / 100,
+                    TotalFixedPrice = processedData.TotalFixedPrice / 100,
                     CheaperOption = cheaperOption.ToString(),
-                    TotalConsumption = totalConsumption,
+                    TotalConsumption = processedData.TotalConsumption,
                     PriceDifference = priceDifference,
                     OptimizedPriceDifference = optimizedPriceDifference,
                     EquivalentFixedPrice = equivalentFixedPrice / 100,
                     TotalOptimizedSpotPrice = totalOptimizedSpotPrice,
-                    MonthlyData = FormatMonthlyData(monthlyData),
-                    WeeklyData = FormatWeeklyData(weeklyData),
-                    DailyData = FormatDailyData(dailyData),
+                    MonthlyData = FormatMonthlyData(processedData.MonthlyData),
+                    WeeklyData = FormatWeeklyData(processedData.WeeklyData),
+                    DailyData = FormatDailyData(processedData.DailyData),
                     StartDate = startDate,
                     EndDate = endDate
                 };
@@ -146,9 +141,7 @@ namespace ApplicationLayer.Services
             }
         }
 
-        public (decimal totalSpotPrice, decimal totalFixedPrice, decimal totalConsumption,
-            Dictionary<(int Month, int Year), MonthlyConsumptionData> monthlyData, Dictionary<(int Week, int Year),
-            WeeklyConsumptionData> weeklyData, Dictionary<DateTime, DailyConsumptionData> dailyData)ProcessCsvData(ConcurrentDictionary<DateTime, decimal> hourlyConsumption, List<ElectricityPriceData> electricityPrices, decimal? fixedPrice)
+        public ProcessedCsvDataResult ProcessCsvData(ConcurrentDictionary<DateTime, decimal> hourlyConsumption, List<ElectricityPriceData> electricityPrices, decimal? fixedPrice)
         {
             _logger.LogInformation("Processing CSV data.");
 
@@ -160,14 +153,13 @@ namespace ApplicationLayer.Services
             decimal totalFixedPrice = 0.0m;
             decimal totalConsumption = 0.0m;
 
-            //Iterate through each entry in the hourly consumption data
+            // Iterate through each entry in the hourly consumption data
             foreach (var (hourlyTimestamp, consumption) in hourlyConsumption)
             {
-                //Calculate the spot price for the given hourly timestamp and consumption
+                // Calculate the spot price for the given hourly timestamp and consumption
                 var spotPrice = CalculatePricesForConsumption(hourlyTimestamp, consumption, electricityPrices);
-                //Accumulate the spot price and consumption
+                // Accumulate the spot price and consumption
                 totalSpotPrice += spotPrice;
-
 
                 var fixedCost = fixedPrice.HasValue ? consumption * fixedPrice.Value : 0;
                 totalFixedPrice += fixedCost;
@@ -179,7 +171,16 @@ namespace ApplicationLayer.Services
             }
 
             _logger.LogInformation("CSV data processed successfully.");
-            return (totalSpotPrice, totalFixedPrice, totalConsumption, monthlyData, weeklyData, dailyData);
+
+            return new ProcessedCsvDataResult
+            {
+                TotalSpotPrice = totalSpotPrice,
+                TotalFixedPrice = totalFixedPrice,
+                TotalConsumption = totalConsumption,
+                MonthlyData = monthlyData,
+                WeeklyData = weeklyData,
+                DailyData = dailyData
+            };
         }
 
         public async Task<List<ElectricityPriceData>> GetElectricityPricesAsync(DateTime startDate, DateTime endDate)
@@ -202,17 +203,17 @@ namespace ApplicationLayer.Services
 
         public (DateTime timestamp, decimal consumption) ParseCsvLine(string line)
         {
-            //Split the CSV line into columns using ';' as a delimiter
+            // Split the CSV line into columns using ';' as a delimiter
             var columns = line.Split(';');
             if (columns.Length < 7 ||
-                !DateTime.TryParse(columns[5], CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var timestamp) || //parse the 6th column as a DateTime
-                !decimal.TryParse(columns[6].Replace(',', '.'), NumberStyles.Any, CultureInfo.InvariantCulture, out var consumption)) //parse the 7th column as a decimal
+                !DateTime.TryParse(columns[5], CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var timestamp) || // parse the 6th column as a DateTime
+                !decimal.TryParse(columns[6].Replace(',', '.'), NumberStyles.Any, CultureInfo.InvariantCulture, out var consumption)) // parse the 7th column as a decimal
             {
                 _logger.LogWarning("Invalid or empty data: {line}", line);
                 return (default, 0);
             }
 
-            //Convert timestamp to Helsinki time zone (which is UTC+2 or UTC+3 based on daylight saving time)
+            // Convert timestamp to Helsinki time zone (which is UTC+2 or UTC+3 based on daylight saving time)
             var helsinkiTimeZone = TimeZoneInfo.FindSystemTimeZoneById("FLE Standard Time");
             timestamp = TimeZoneInfo.ConvertTime(timestamp, helsinkiTimeZone);
 
@@ -230,34 +231,36 @@ namespace ApplicationLayer.Services
 
             return consumption * price.Price;
         }
+
         public ConcurrentDictionary<DateTime, decimal> OptimizeConsumption(ConcurrentDictionary<DateTime, decimal> hourlyConsumption)
         {
             _logger.LogInformation("Optimizing consumption by moving 25% of 12:00-23:59 consumption to 00:00-11:59 period.");
 
-            //New ConcurrentDictionary to store the optimized consumption values.
+            // New ConcurrentDictionary to store the optimized consumption values.
             var optimizedConsumption = new ConcurrentDictionary<DateTime, decimal>();
 
-            //Iterate over the original hourly consumption dictionary.
+            // Iterate over the original hourly consumption dictionary.
             foreach (var (timestamp, consumption) in hourlyConsumption)
             {
-                //Add the rounded timestamp and its corresponding consumption to the optimized consumption dictionary.
-                //If the timestamp already exists, add the current consumption to the existing value.
+                // Add the rounded timestamp and its corresponding consumption to the optimized consumption dictionary.
+                // If the timestamp already exists, add the current consumption to the existing value.
                 var roundedTimestamp = new DateTime(timestamp.Year, timestamp.Month, timestamp.Day, timestamp.Hour, 0, 0);
                 optimizedConsumption.AddOrUpdate(roundedTimestamp, consumption, (key, oldValue) => oldValue + consumption);
             }
-            //Last timestamp in csv file
+
+            // Last timestamp in csv file
             var maxTimestamp = optimizedConsumption.Keys.Max();
 
-            //Iterate over the optimized consumption dictionary again to apply the optimization logic.
+            // Iterate over the optimized consumption dictionary again to apply the optimization logic.
             foreach (var (timestamp, consumption) in optimizedConsumption)
             {
-                //Only consumption in time range 12:00-23:59 will be optimized 
+                // Only consumption in time range 12:00-23:59 will be optimized 
                 if (timestamp.Hour >= 12 && timestamp.Hour <= 23)
                 {
-                    //Calculate the amount of consumption to move
+                    // Calculate the amount of consumption to move
                     var consumptionToMove = consumption * OptimizePercentage;
 
-                    //Ensure that moving consumption will not exceed the maximum available timestamp.
+                    // Ensure that moving consumption will not exceed the maximum available timestamp.
                     var nextDayTimestamp = timestamp.AddHours(12);
                     if (nextDayTimestamp <= maxTimestamp)
                     {
@@ -266,8 +269,6 @@ namespace ApplicationLayer.Services
 
                         // Move the consumption to the corresponding hour.
                         optimizedConsumption.AddOrUpdate(nextDayTimestamp, consumptionToMove, (key, oldValue) => oldValue + consumptionToMove);
-
-                        
                     }
                     else
                     {
@@ -280,7 +281,6 @@ namespace ApplicationLayer.Services
             return optimizedConsumption;
         }
 
-
         private PriceOption DetermineCheaperOption(decimal totalSpotPrice, decimal totalFixedPrice, decimal? fixedPrice)
         {
             try
@@ -292,6 +292,7 @@ namespace ApplicationLayer.Services
                 }
 
                 var cheaperOption = fixedPrice.HasValue && totalFixedPrice < totalSpotPrice ? PriceOption.FixedPrice : PriceOption.SpotPrice;
+                
                 _logger.LogInformation("Cheaper option determined: {cheaperOption}", cheaperOption);
                 return cheaperOption;
             }
@@ -310,6 +311,7 @@ namespace ApplicationLayer.Services
                 monthly = new MonthlyConsumptionData { Month = key.Month, Year = key.Year };
                 monthlyData[key] = monthly;
             }
+
             monthly.Consumption += consumption;
             monthly.SpotPrice += spotPrice / 100;
             monthly.FixedPrice += fixedCost / 100;
@@ -371,28 +373,27 @@ namespace ApplicationLayer.Services
         public static List<MonthlyConsumptionData> FormatMonthlyData(Dictionary<(int Month, int Year), MonthlyConsumptionData> monthlyData)
         {
             return monthlyData
-        .OrderBy(entry => entry.Key.Year)
-        .ThenBy(entry => entry.Key.Month)
-        .Select(entry => entry.Value)
-        .ToList();
+                .OrderBy(entry => entry.Key.Year)
+                .ThenBy(entry => entry.Key.Month)
+                .Select(entry => entry.Value)
+                .ToList();
         }
 
         public static List<WeeklyConsumptionData> FormatWeeklyData(Dictionary<(int Week, int Year), WeeklyConsumptionData> weeklyData)
         {
             return weeklyData
-        .OrderBy(entry => entry.Key.Year)
-        .ThenBy(entry => entry.Key.Week)
-        .Select(entry => entry.Value)
-        .ToList();
+                .OrderBy(entry => entry.Key.Year)
+                .ThenBy(entry => entry.Key.Week)
+                .Select(entry => entry.Value)
+                .ToList();
         }
 
         public static List<DailyConsumptionData> FormatDailyData(Dictionary<DateTime, DailyConsumptionData> dailyData)
         {
             return dailyData
-        .OrderBy(entry => entry.Key)
-        .Select(entry => entry.Value)
-        .ToList();
+                .OrderBy(entry => entry.Key)
+                .Select(entry => entry.Value)
+                .ToList();
         }
-    
     }
 }
