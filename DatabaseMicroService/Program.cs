@@ -58,9 +58,14 @@ public class Program
         builder.Services.AddScoped<IElectricityRepository, ElectricityRepository>();
         builder.Services.AddScoped<ISaveHistoryDataService, SaveHistoryDataService>();
         builder.Services.AddScoped<IDateRangeDataService, DateRangeDataService>();
-        builder.Services.AddScoped<ICalculateFingridConsumptionPrice, CalculateFinGridConsumptionPriceService>();
-        builder.Services.AddHostedService<ElectricityPriceFetchingBackgroundService>();
+        builder.Services.AddScoped<ICsvReaderService, CsvReaderService>();
         builder.Services.AddScoped<IElectricityPriceService, ElectricityPriceService>();
+        builder.Services.AddScoped<IConsumptionDataProcessor, ConsumptionDataProcessor>();
+        builder.Services.AddScoped<IConsumptionOptimizer, ConsumptionOptimizer>();
+        builder.Services.AddScoped<ICalculateFingridConsumptionPrice, CalculateFinGridConsumptionPriceService>();
+
+        builder.Services.AddHostedService<ElectricityPriceFetchingBackgroundService>();
+
         builder.Services.AddMemoryCache();
 
         // Health checks setup

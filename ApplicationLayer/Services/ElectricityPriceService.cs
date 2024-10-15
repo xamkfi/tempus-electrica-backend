@@ -1,4 +1,5 @@
 ﻿using ApplicationLayer.Dto;
+using ApplicationLayer.Dto.Consumption;
 using ApplicationLayer.Interfaces;
 using Domain.Entities;
 using Domain.Interfaces;
@@ -22,6 +23,24 @@ namespace ApplicationLayer.Services
             _electricityRepository = electricityRepository ?? throw new ArgumentNullException(nameof(electricityRepository));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _consumptionSettings = consumptionSettings?.Value ?? throw new ArgumentNullException(nameof(consumptionSettings));
+        }
+
+        public async Task<List<ElectricityPriceData>> GetElectricityPricesAsync(DateTime startDate, DateTime endDate)
+        {
+            _logger.LogInformation("Fetching electricity prices from {startDate} to {endDate}", startDate, endDate);
+
+            var prices = await _electricityRepository.GetPricesForPeriodAsync(startDate, endDate).ConfigureAwait(false);
+
+            if (prices != null && prices.Any())
+            {
+                _logger.LogInformation("Retrieved {count} electricity price records.", prices.Count());
+                return prices.ToList();
+            }
+            else
+            {
+                _logger.LogWarning("No electricity prices found for the given period.");
+                return new List<ElectricityPriceData>();
+            }
         }
 
         public async Task<ElectricityPriceResultDto> GetElectricityPriceDataAsync(CombinedRequestDtoIn request)

@@ -6,6 +6,7 @@ using Domain.Interfaces;
 using Microsoft.Extensions.Logging;
 using Moq;
 using Microsoft.Extensions.Options;
+using ApplicationLayer.Dto.Consumption;
 
 namespace TestProject.Application
 {

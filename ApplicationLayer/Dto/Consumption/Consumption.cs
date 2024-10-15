@@ -4,9 +4,9 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace ApplicationLayer.Dto
+namespace ApplicationLayer.Dto.Consumption
 {
-    internal class Consumption
+    internal class ConsumptionDto
     {
         public decimal Total { get; set; }
         public decimal HousingConsumption { get; set; }
