@@ -48,7 +48,7 @@ jobs:
         working-directory: ./DatabaseMicroService
 
       - name: Run Migrations
-        run: pwsh -Command "./efbundle --connection '${{ secrets.CONNECTION_STRING }}'"
+        run: pwsh -Command "./efbundle --connection '${{ secrets.PRODUCTION_DB }}'"
         working-directory: ./DatabaseMicroService
 
       - name: Build with dotnet
