@@ -17,5 +17,10 @@ namespace ApplicationLayer.Dto
         public decimal MaxConsumption { get; set; }
         public decimal AverageHourlySpotPrice { get; set; }
         public List<MonthlyData> MonthlyData { get; set; }
+
+        public decimal MinFixedPriceCost { get; set; }
+        public decimal MaxFixedPriceCost { get; set; }
+        public decimal MinSpotPriceCost { get; set; }
+        public decimal MaxSpotPriceCost { get; set; }
     }
 }
