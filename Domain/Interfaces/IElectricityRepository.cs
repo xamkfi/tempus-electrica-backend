@@ -15,5 +15,8 @@ namespace Domain.Interfaces
 
         Task<IEnumerable<ElectricityPriceData>> GetPricesForPeriodAsync(DateTime startDate, DateTime endDate);
 
+        Task<DateTime> GetLatestStartDateAsync();
+        Task AddRangeAsync(IEnumerable<ElectricityPriceData> dataList);
+
     }
 }

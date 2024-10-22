@@ -144,5 +144,17 @@ namespace Infrastructure.Repositories
 
             return cachedDataList;
         }
+
+        public async Task<DateTime> GetLatestStartDateAsync()
+        {
+            return await _context.ElectricityPriceDatas
+                .MaxAsync(e => (DateTime?)e.StartDate) ?? DateTime.MinValue;
+        }
+
+        public async Task AddRangeAsync(IEnumerable<ElectricityPriceData> dataList)
+        {
+            await _context.ElectricityPriceDatas.AddRangeAsync(dataList);
+            await _context.SaveChangesAsync();
+        }
     }
 }

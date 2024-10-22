@@ -8,6 +8,7 @@ using Infrastructure.Repositories;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi.Models;
 using System.Text.Json.Serialization;
+using Infrastructure.HostedServices;
 
 public class Program
 {
@@ -49,6 +50,7 @@ public class Program
         var keyVaultManager = builder.Services.BuildServiceProvider().GetRequiredService<IKeyVaultSecretManager>();
         var vaultSecret = await keyVaultManager.GetSecretAsync();
         var dbConnectionString = vaultSecret.DbConnectionString;
+
         // Register the DbContext with the connection string fetched from Key Vault
         builder.Services.AddDbContext<ElectricityDbContext>(options =>
             options.UseSqlServer(dbConnectionString));
@@ -59,9 +61,12 @@ public class Program
         builder.Services.AddScoped<ISaveHistoryDataService, SaveHistoryDataService>();
         builder.Services.AddScoped<IDateRangeDataService, DateRangeDataService>();
         builder.Services.AddScoped<ICalculateFingridConsumptionPrice, CalculateFinGridConsumptionPriceService>();
-        builder.Services.AddHostedService<ElectricityPriceFetchingBackgroundService>();
         builder.Services.AddScoped<IElectricityPriceService, ElectricityPriceService>();
         builder.Services.AddMemoryCache();
+
+        //Hosted services
+        builder.Services.AddHostedService<ElectricityPriceFetchingBackgroundService>();
+        builder.Services.AddHostedService<DataLoaderHostedService>();
 
         // Health checks setup
         builder.Services.AddHttpClient();

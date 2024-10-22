@@ -1,12 +1,13 @@
 ﻿using ApplicationLayer.Dto;
 using ApplicationLayer.Interfaces;
-using CsvHelper;
-using CsvHelper.Configuration;
 using Domain.Entities;
 using Domain.Interfaces;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using System.Globalization;
+using System.Net.Http;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace ApplicationLayer.Services
 {
@@ -14,135 +15,82 @@ namespace ApplicationLayer.Services
     {
         private readonly IElectricityRepository _electricityRepository;
         private readonly ILogger _logger;
+        private readonly IHttpClientFactory _httpClientFactory;
 
-        public SaveHistoryDataService(IElectricityRepository electricityRepository, ILogger<SaveHistoryDataService> logger)
+        public SaveHistoryDataService(IHttpClientFactory httpClientFactory, IElectricityRepository electricityRepository, ILogger<SaveHistoryDataService> logger)
         {
             _electricityRepository = electricityRepository;
+            _httpClientFactory = httpClientFactory;
             _logger = logger;
         }
 
-        public async Task<bool> ProcessCsvFileAsync(IFormFile csvFile)
+        public async Task LoadDataAsync()
         {
-            _logger.LogInformation("ProcessCsvFileAsync started at {StartTime}", DateTime.UtcNow);
-            if (csvFile == null)
-            {
-                _logger.LogWarning("No CSV file provided.");
-                return false;
-            }
-            _logger.LogInformation("CSV file received: {FileName}, Size: {FileSize} bytes", csvFile.FileName, csvFile.Length);
-
             try
             {
-                using var reader = new StreamReader(csvFile.OpenReadStream());
-                var csv = new CsvReader(reader, new CsvConfiguration(CultureInfo.InvariantCulture)
-                {
-                    Delimiter = ";",
-                    HasHeaderRecord = true
-                });
+                var client = _httpClientFactory.CreateClient();
+                var apiUrl = "https://sahkotin.fi/prices?vat&start=2020-01-01T00:00:00.000Z";
 
-                var records = new List<ElectricityPriceCsvRecord>();
+                _logger.LogInformation("Fetching data from API...");
 
-                await foreach (var record in csv.GetRecordsAsync<ElectricityPriceCsvRecord>())
+                var response = await client.GetAsync(apiUrl);
+
+                if (response.IsSuccessStatusCode)
                 {
-                    if (!string.IsNullOrWhiteSpace(record.Timestamp))
+                    var jsonResponse = await response.Content.ReadAsStringAsync();
+
+                    var options = new JsonSerializerOptions
                     {
-                        records.Add(record);
-                    }
-                }
-
-                var electricityPriceDataList = records.Select(record =>
-                {
-                    var startDate = DateTime.Parse(record.Timestamp, CultureInfo.InvariantCulture);
-                    var endDate = startDate.AddHours(1);
-
-                    return new ElectricityPriceData
-                    {
-                        StartDate = startDate,
-                        EndDate = endDate,
-                        Price = record.Price
+                        PropertyNameCaseInsensitive = true
                     };
-                }).ToList();
 
-                _logger.LogInformation("Parsed {RecordCount} records from the CSV file.", records.Count);
+                    var dataResponse = JsonSerializer.Deserialize<ElectricityPricesResponse>(jsonResponse, options);
 
-                return await ProcessElectricityPriceDataAsync(electricityPriceDataList);
+                    if (dataResponse?.Prices == null || !dataResponse.Prices.Any())
+                    {
+                        _logger.LogInformation("No data received from the API.");
+                        return;
+                    }
+
+                    // Rest of your logic remains the same, but use dataResponse.Prices instead of dataList
+                    var dataList = dataResponse.Prices;
+
+                    // Check the latest StartDate in the database
+                    var latestStartDate = await _electricityRepository.GetLatestStartDateAsync();
+
+                    // Filter out data that is already in the database
+                    var newDataList = dataList
+                        .Where(d => d.StartDate > latestStartDate)
+                        .OrderBy(d => d.StartDate)
+                        .ToList();
+
+                    if (!newDataList.Any())
+                    {
+                        _logger.LogInformation("No new data to save.");
+                        return;
+                    }
+
+                    _logger.LogInformation($"Saving {newDataList.Count} new records to the database...");
+
+                    // Save data in batches
+                    const int batchSize = 1000; // Adjust the batch size as needed
+                    for (int i = 0; i < newDataList.Count; i += batchSize)
+                    {
+                        var batch = newDataList.Skip(i).Take(batchSize).ToList();
+                        await _electricityRepository.AddRangeAsync(batch);
+                    }
+
+                    _logger.LogInformation("Data loading completed successfully.");
+                }
+                else
+                {
+                    _logger.LogError($"API call failed with status code: {response.StatusCode}");
+                }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error processing CSV file");
-                return false;
+                _logger.LogError(ex, "An error occurred while loading data.");
             }
-            finally
-            {
-                _logger.LogInformation("ProcessCsvFileAsync ended at {EndTime}", DateTime.UtcNow);
-            }
-        }
-
-        private async Task<bool> ProcessElectricityPriceDataAsync(List<ElectricityPriceData> electricityPriceDataList)
-        {
-            _logger.LogInformation("Processing {RecordCount} electricity price records.", electricityPriceDataList.Count);
-
-            try
-            {
-                const int batchSize = 1000;
-                var nonDuplicateBatches = new List<List<ElectricityPriceData>>();
-                var currentBatch = new List<ElectricityPriceData>();
-
-                foreach (var electricityPriceData in electricityPriceDataList)
-                {
-                    currentBatch.Add(electricityPriceData);
-
-                    if (currentBatch.Count == batchSize)
-                    {
-                        var filteredBatch = await FilterDuplicatesAsync(currentBatch);
-                        if (filteredBatch.Any())
-                        {
-                            nonDuplicateBatches.Add(filteredBatch);
-                        }
-                        _logger.LogInformation("Processed a batch of {BatchSize} records.", batchSize);
-                        currentBatch.Clear();
-                    }
-                }
-
-                if (currentBatch.Any())
-                {
-                    var filteredBatch = await FilterDuplicatesAsync(currentBatch);
-                    if (filteredBatch.Any())
-                    {
-                        nonDuplicateBatches.Add(filteredBatch);
-                    }
-                }
-
-                foreach (var batch in nonDuplicateBatches)
-                {
-                    await _electricityRepository.AddBatchElectricityPricesAsync(batch);
-                    _logger.LogInformation("Saved a batch of {BatchSize} non-duplicate records to the database.", batch.Count);
-                }
-
-                _logger.LogInformation("Processed and saved all records successfully.");
-                return true;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error processing electricity price data");
-                return false;
-            }
-        }
-
-        private async Task<List<ElectricityPriceData>> FilterDuplicatesAsync(List<ElectricityPriceData> batch)
-        {
-            _logger.LogInformation("Filtering duplicates in a batch of {BatchSize} records.", batch.Count);
-
-            var startDateList = batch.Select(e => e.StartDate).ToList();
-            var endDateList = batch.Select(e => e.EndDate).ToList();
-
-            var duplicates = await _electricityRepository.GetDuplicatesAsync(startDateList, endDateList);
-            _logger.LogInformation("{DuplicateCount} duplicates found in the batch.", duplicates.Count);
-
-            var filteredBatch = batch.Where(e => !duplicates.Any(d => d.StartDate == e.StartDate && d.EndDate == e.EndDate)).ToList();
-            _logger.LogInformation("Filtered batch size after removing duplicates: {FilteredBatchSize}", filteredBatch.Count);
-
-            return filteredBatch;
         }
     }
 }
