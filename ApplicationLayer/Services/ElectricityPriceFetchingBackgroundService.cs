@@ -90,6 +90,20 @@ public class ElectricityPriceFetchingBackgroundService : BackgroundService
             var electricityData = JsonConvert.DeserializeObject<ElectricityPriceDataDtoIn>(electricityDataJson);
             if (electricityData != null && electricityData.Prices != null && electricityData.Prices.Any())
             {
+                // Define the Finnish time zone
+                var finnishTimeZone = TimeZoneInfo.FindSystemTimeZoneById("FLE Standard Time");
+
+                // Adjust StartDate to Finnish time and set EndDate
+                foreach (var data in electricityData.Prices)
+                {
+                    // Convert the StartDate from UTC to Finnish time
+                    data.StartDate = TimeZoneInfo.ConvertTimeFromUtc(data.StartDate, finnishTimeZone);
+
+                    // Set the EndDate to one hour after the StartDate
+                    data.EndDate = data.StartDate.AddHours(1);
+                }
+
+                // Save the adjusted data to the database
                 bool success = await electricityService.AddElectricityPricesAsync(electricityData);
                 if (success)
                 {

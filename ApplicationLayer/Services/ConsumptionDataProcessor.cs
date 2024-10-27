@@ -23,9 +23,9 @@ namespace ApplicationLayer.Services
         }
 
         public ProcessedCsvDataResult ProcessConsumptionData(
-            ConcurrentDictionary<DateTime, decimal> hourlyConsumption,
-            List<ElectricityPriceData> electricityPrices,
-            decimal? fixedPrice)
+    ConcurrentDictionary<DateTime, decimal> hourlyConsumption,
+    IEnumerable<ElectricityPriceData> electricityPrices, 
+    decimal? fixedPrice)
         {
             _logger.LogInformation("Processing consumption data.");
 
@@ -37,7 +37,13 @@ namespace ApplicationLayer.Services
             decimal totalFixedPrice = 0.0m;
             decimal totalConsumption = 0.0m;
 
-            var priceLookup = electricityPrices.ToDictionary(p => p.StartDate);
+            // Convert IEnumerable to a Dictionary for lookups
+            var priceLookup = electricityPrices
+                .GroupBy(p => p.StartDate)
+                .ToDictionary(
+                    g => g.Key,
+                    g => g.First()
+                );
 
             foreach (var (hourlyTimestamp, consumption) in hourlyConsumption)
             {

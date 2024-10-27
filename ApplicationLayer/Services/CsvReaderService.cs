@@ -42,7 +42,11 @@ namespace ApplicationLayer.Services
                     var (timestamp, consumption) = ParseCsvLine(line);
                     if (timestamp != default)
                     {
-                        hourlyConsumption.AddOrUpdate(timestamp, consumption, (key, oldValue) => oldValue + consumption);
+                        // Round down the timestamp to the nearest hour after conversion
+                        var roundedTimestamp = new DateTime(timestamp.Year, timestamp.Month, timestamp.Day, timestamp.Hour, 0, 0);
+
+                        // Aggregate the consumption values for the same hour
+                        hourlyConsumption.AddOrUpdate(roundedTimestamp, consumption, (key, oldValue) => oldValue + consumption);
                     }
                 }
             }
@@ -59,27 +63,34 @@ namespace ApplicationLayer.Services
         private (DateTime timestamp, decimal consumption) ParseCsvLine(string line)
         {
             var columns = line.Split(';');
+
+            // Ensure that the line has enough columns and that the timestamp and consumption are parsed correctly.
             if (columns.Length < 7 ||
-                !DateTime.TryParse(columns[5], CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var timestamp) ||
+                !DateTime.TryParse(columns[5], CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var timestamp) ||
                 !decimal.TryParse(columns[6].Replace(',', '.'), NumberStyles.Any, CultureInfo.InvariantCulture, out var consumption))
             {
                 _logger.LogWarning("Invalid or empty data: {line}", line);
                 return (default, 0);
             }
 
+            // Ensure that the DateTimeKind is set to Utc before converting to Helsinki time.
+            timestamp = DateTime.SpecifyKind(timestamp, DateTimeKind.Utc);
+
             try
             {
-                var timeZoneId = TimeZoneInfo.Local.Id;
-                var helsinkiTimeZone = TimeZoneInfo.FindSystemTimeZoneById(timeZoneId);
-                timestamp = TimeZoneInfo.ConvertTime(timestamp, helsinkiTimeZone);
+                var helsinkiTimeZone = TimeZoneInfo.FindSystemTimeZoneById("FLE Standard Time");
+                var helsinkiTimestamp = TimeZoneInfo.ConvertTimeFromUtc(timestamp, helsinkiTimeZone);
+
+                _logger.LogInformation("Converted UTC time {UtcTime} to Helsinki time {HelsinkiTime}", timestamp, helsinkiTimestamp);
+
+                return (helsinkiTimestamp, consumption);
             }
             catch (TimeZoneNotFoundException)
             {
-                _logger.LogError("Time zone not found.");
+                _logger.LogError("Time zone 'FLE Standard Time' not found.");
                 throw;
             }
-
-            return (timestamp, consumption);
+            
         }
     }
 

@@ -12,7 +12,7 @@ namespace ApplicationLayer.Services
     public class CalculateFinGridConsumptionPriceService : ICalculateFingridConsumptionPrice
     {
         private readonly ICsvReaderService _csvReaderService;
-        private readonly IElectricityPriceService _electricityPriceService;
+        private readonly IElectricityRepository _electricityRepository;
         private readonly IConsumptionDataProcessor _consumptionDataProcessor;
         private readonly IConsumptionOptimizer _consumptionOptimizer;
         private readonly ILogger<CalculateFinGridConsumptionPriceService> _logger;
@@ -20,14 +20,14 @@ namespace ApplicationLayer.Services
 
         public CalculateFinGridConsumptionPriceService(
             ICsvReaderService csvReaderService,
-            IElectricityPriceService electricityPriceService,
+            IElectricityRepository electricityRepository,
             IConsumptionDataProcessor consumptionDataProcessor,
             IConsumptionOptimizer consumptionOptimizer,
             ILogger<CalculateFinGridConsumptionPriceService> logger,
             IConfiguration configuration)
         {
             _csvReaderService = csvReaderService;
-            _electricityPriceService = electricityPriceService;
+            _electricityRepository = electricityRepository;
             _consumptionDataProcessor = consumptionDataProcessor;
             _consumptionOptimizer = consumptionOptimizer;
             _logger = logger;
@@ -42,8 +42,8 @@ namespace ApplicationLayer.Services
         }
 
         public async Task<ConsumptionPriceCalculationResult> CalculateTotalConsumptionPricesAsync(
-            string csvFilePath,
-            decimal? fixedPrice)
+    string csvFilePath,
+    decimal? fixedPrice)
         {
             _logger.LogInformation("Start calculating total consumption prices.");
 
@@ -55,9 +55,10 @@ namespace ApplicationLayer.Services
 
             try
             {
+                _logger.LogInformation("Reading hourly consumption from CSV.");
                 var hourlyConsumption = await _csvReaderService.ReadHourlyConsumptionAsync(csvFilePath).ConfigureAwait(false);
 
-                if (!hourlyConsumption.Any())
+                if (hourlyConsumption == null || !hourlyConsumption.Any())
                 {
                     _logger.LogWarning("No consumption data found in CSV.");
                     return GetDefaultResult();
@@ -66,20 +67,24 @@ namespace ApplicationLayer.Services
                 var startDate = hourlyConsumption.Keys.Min();
                 var endDate = hourlyConsumption.Keys.Max().AddHours(1);
 
-                var electricityPrices = await _electricityPriceService.GetElectricityPricesAsync(startDate, endDate).ConfigureAwait(false);
+                _logger.LogInformation("Fetching electricity prices.");
+                var electricityPrices = await _electricityRepository.GetPricesForPeriodAsync(startDate, endDate).ConfigureAwait(false);
 
-                if (!electricityPrices.Any())
+                if (electricityPrices == null || !electricityPrices.Any())
                 {
                     _logger.LogError("No electricity prices found for the given period.");
                     return GetDefaultResult();
                 }
 
+                _logger.LogInformation("Processing consumption data.");
                 var processedData = _consumptionDataProcessor.ProcessConsumptionData(hourlyConsumption, electricityPrices, fixedPrice);
-
+       
+                
                 var cheaperOption = DetermineCheaperOption(processedData.TotalSpotPrice, processedData.TotalFixedPrice, fixedPrice);
                 var priceDifference = Math.Abs(processedData.TotalSpotPrice - processedData.TotalFixedPrice) / 100;
                 var equivalentFixedPrice = cheaperOption == PriceOption.SpotPrice ? processedData.TotalSpotPrice / processedData.TotalConsumption : 0;
 
+                _logger.LogInformation("Optimizing consumption.");
                 var optimizedConsumption = _consumptionOptimizer.OptimizeConsumption(hourlyConsumption, _optimizePercentage);
                 var optimizedData = _consumptionDataProcessor.ProcessConsumptionData(optimizedConsumption, electricityPrices, fixedPrice);
 
@@ -95,7 +100,7 @@ namespace ApplicationLayer.Services
                     TotalConsumption = processedData.TotalConsumption,
                     PriceDifference = priceDifference,
                     OptimizedPriceDifference = optimizedPriceDifference,
-                    EquivalentFixedPrice = equivalentFixedPrice / 100,
+                    EquivalentFixedPrice = equivalentFixedPrice,
                     TotalOptimizedSpotPrice = optimizedData.TotalSpotPrice / 100,
                     MonthlyData = DataFormatter.FormatMonthlyData(processedData.MonthlyData),
                     WeeklyData = DataFormatter.FormatWeeklyData(processedData.WeeklyData),
@@ -103,6 +108,11 @@ namespace ApplicationLayer.Services
                     StartDate = startDate,
                     EndDate = endDate
                 };
+            }
+            catch (CsvReadingException ex)
+            {
+                _logger.LogError(ex, "Error reading CSV file.");
+                return GetDefaultResult();
             }
             catch (Exception ex)
             {

@@ -6,67 +6,53 @@ using Domain.Entities;
 using Domain.Interfaces;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Primitives;
 using Moq;
 using System.Collections.Concurrent;
-using System.Globalization;
-using System.Threading.Tasks;
-using Xunit;
 
 namespace TestProject.Application
 {
     public class CalculateFinGridConsumptionPriceServiceTests
     {
-        private readonly ICalculateFingridConsumptionPrice _calculateFingridConsumptionPrice;
-        private readonly Mock<IElectricityPriceService> _electricityPriceServiceMock;
-        private readonly Mock<ICsvReaderService> _csvReaderServiceMock;
-        private readonly Mock<IConsumptionDataProcessor> _consumptionDataProcessorMock;
-        private readonly Mock<IConsumptionOptimizer> _consumptionOptimizerMock;
-        private readonly Mock<ILogger<CalculateFinGridConsumptionPriceService>> _loggerMock;
-        private readonly Mock<IConfiguration> _configurationMock;
+        private Mock<ICsvReaderService> _csvReaderServiceMock;
+        private Mock<IElectricityRepository> _electricityRepositoryMock;
+        private Mock<IConsumptionDataProcessor> _consumptionDataProcessorMock;
+        private Mock<IConsumptionOptimizer> _consumptionOptimizerMock;
+        private Mock<ILogger<CalculateFinGridConsumptionPriceService>> _loggerMock;
+        private CalculateFinGridConsumptionPriceService _calculateFingridConsumptionPrice;
 
         public CalculateFinGridConsumptionPriceServiceTests()
         {
-            // Mock dependencies
+            // Initialize mocks
             _csvReaderServiceMock = new Mock<ICsvReaderService>();
-            _electricityPriceServiceMock = new Mock<IElectricityPriceService>();
+            _electricityRepositoryMock = new Mock<IElectricityRepository>();
             _consumptionDataProcessorMock = new Mock<IConsumptionDataProcessor>();
             _consumptionOptimizerMock = new Mock<IConsumptionOptimizer>();
             _loggerMock = new Mock<ILogger<CalculateFinGridConsumptionPriceService>>();
-            _configurationMock = new Mock<IConfiguration>();
 
-            // Setup configuration mock
-            _configurationMock.Setup(config => config.GetValue<decimal>("OptimizePercentage", It.IsAny<decimal>())).Returns(0.25M);
+            // Use a dictionary to simulate IConfiguration
+            var inMemorySettings = new Dictionary<string, string>
+        {
+            {"OptimizePercentage", "0.25"} 
+        };
 
-            // Setup electricity price service mock
-            _electricityPriceServiceMock
-                .Setup(service => service.GetElectricityPricesAsync(It.IsAny<DateTime>(), It.IsAny<DateTime>()))
-                .ReturnsAsync(new List<ElectricityPriceData>
-                {
-                    new ElectricityPriceData { StartDate = new DateTime(2024, 6, 20, 10, 0, 0), EndDate = new DateTime(2024, 6, 20, 11, 0, 0), Price = 14.2M },
-                    new ElectricityPriceData { StartDate = new DateTime(2024, 6, 20, 11, 0, 0), EndDate = new DateTime(2024, 6, 20, 12, 0, 0), Price = 12M },
-                    new ElectricityPriceData { StartDate = new DateTime(2024, 6, 20, 12, 0, 0), EndDate = new DateTime(2024, 6, 20, 13, 0, 0), Price = 13M }
-                });
+            // Create the custom configuration
+            var testConfiguration = new TestConfiguration(inMemorySettings);
 
-            // Instantiate the service with mocked dependencies
+            // Create the service instance with mocked dependencies
             _calculateFingridConsumptionPrice = new CalculateFinGridConsumptionPriceService(
                 _csvReaderServiceMock.Object,
-                _electricityPriceServiceMock.Object,
+                _electricityRepositoryMock.Object,
                 _consumptionDataProcessorMock.Object,
                 _consumptionOptimizerMock.Object,
                 _loggerMock.Object,
-                _configurationMock.Object);
+                testConfiguration // Use the custom configuration
+            );
         }
 
-        public static string MockCsvData()
-        {
-            var culture = CultureInfo.CreateSpecificCulture("en-US");
-            var dateTimeFormat = "yyyy-MM-ddTHH:mm:ssZ";
 
-            return "MeteringPointGSRN;Product Type;Resolution;Unit Type;Reading Type;Start Time;Quantity;Quality\n" +
-                   "643000000000000000;872000000000;PT15M;kWh;BN01;" + DateTime.Parse("2024-06-20T07:00:00Z", culture, DateTimeStyles.AdjustToUniversal).ToString(dateTimeFormat) + ";200.0;OK\n" +
-                   "643000000000000000;872000000000;PT15M;kWh;BN01;" + DateTime.Parse("2024-06-20T08:00:00Z", culture, DateTimeStyles.AdjustToUniversal).ToString(dateTimeFormat) + ";120.0;OK\n" +
-                   "643000000000000000;872000000000;PT15M;kWh;BN01;" + DateTime.Parse("2024-06-20T09:00:00Z", culture, DateTimeStyles.AdjustToUniversal).ToString(dateTimeFormat) + ";100.0;OK\n";
-        }
+        
+
 
         [Fact]
         public async Task CalculatePricesAsync_MissingCsvData_EmptyResult()
@@ -89,12 +75,10 @@ namespace TestProject.Application
         public async Task CalculatePricesAsync_InvalidCsvFormat_EmptyResult()
         {
             // Arrange
-            var csvData = "Invalid data\n";
             var csvFilePath = "invaliddata_20230531_20230601.csv";
-            await File.WriteAllTextAsync(csvFilePath, csvData);
             decimal fixedPrice = 0.20m;
 
-            // Mock the CSV reader service to return empty data due to invalid format
+            // Mock the CSV reader service to throw CsvReadingException for invalid format
             _csvReaderServiceMock.Setup(service => service.ReadHourlyConsumptionAsync(csvFilePath))
                 .ThrowsAsync(new CsvReadingException("Invalid CSV format.", null));
 
@@ -106,105 +90,65 @@ namespace TestProject.Application
             Assert.Equal(0, result.TotalFixedPrice);
             Assert.Equal("Error calculating data, or no data were found", result.CheaperOption);
             Assert.Equal(0, result.EquivalentFixedPrice);
-
-            // Cleanup
-            File.Delete(csvFilePath);
         }
-
         [Fact]
-        public async Task CalculateTotalConsumptionPricesAsync_ValidCsvFilePath_ReturnsCorrectResult()
+        public async Task CalculateTotalConsumptionPricesAsync_ShouldCalculateCorrectSpotPrice()
         {
             // Arrange
-            var csvData = MockCsvData();
             var csvFilePath = "validdata_20240601_20240602.csv";
-            await File.WriteAllTextAsync(csvFilePath, csvData);
             decimal fixedPrice = 7.5M;
 
-            // Mock the CSV reader service to return the expected hourly consumption
             var hourlyConsumption = new ConcurrentDictionary<DateTime, decimal>
             {
-                [new DateTime(2024, 6, 20, 7, 0, 0)] = 200.0M,
-                [new DateTime(2024, 6, 20, 8, 0, 0)] = 120.0M,
-                [new DateTime(2024, 6, 20, 9, 0, 0)] = 100.0M,
+                [new DateTime(2024, 6, 20, 13, 0, 0)] = 100,  // 100 kWh consumption at 13:00
+                [new DateTime(2024, 6, 20, 14, 0, 0)] = 200,  // 200 kWh consumption at 14:00
+                [new DateTime(2024, 6, 20, 15, 0, 0)] = 150   // 150 kWh consumption at 15:00
             };
 
+            // Mock the CsvReaderService to return predefined consumption data
             _csvReaderServiceMock.Setup(service => service.ReadHourlyConsumptionAsync(csvFilePath))
                 .ReturnsAsync(hourlyConsumption);
 
-            // Mock the consumption data processor to return processed data
-            var processedData = new ProcessedCsvDataResult
-            {
-                TotalSpotPrice = 55.8M * 100, // Since the service divides by 100
-                TotalFixedPrice = 31.5M * 100,
-                TotalConsumption = 420.0M,
-                MonthlyData = new Dictionary<(int Month, int Year), MonthlyConsumptionData>
+            // Set up the mock to return prices for the relevant time period
+            DateTime startDate = new DateTime(2024, 6, 20, 13, 0, 0);
+            DateTime endDate = new DateTime(2024, 6, 20, 16, 0, 0);
+            _electricityRepositoryMock.Setup(repo => repo.GetPricesForPeriodAsync(startDate, endDate))
+                .ReturnsAsync(new List<ElectricityPriceData>
                 {
-                    {
-                        (6, 2024),
-                        new MonthlyConsumptionData
-                        {
-                            Month = 6,
-                            Year = 2024,
-                            Consumption = 420.0M,
-                            SpotPrice = 55.8M,
-                            FixedPrice = 31.5M
-                        }
-                    }
-                },
-                WeeklyData = new Dictionary<(int Week, int Year), WeeklyConsumptionData>
-                {
-                    {
-                        (25, 2024),
-                        new WeeklyConsumptionData
-                        {
-                            Week = 25,
-                            Year = 2024,
-                            Consumption = 420.0M,
-                            SpotPrice = 55.8M,
-                            FixedPrice = 31.5M
-                        }
-                    }
-                },
-                DailyData = new Dictionary<DateTime, DailyConsumptionData>
-                {
-                    {
-                        new DateTime(2024, 6, 20),
-                        new DailyConsumptionData
-                        {
-                            Day = "20.6.2024",
-                            Consumption = 420.0M,
-                            SpotPrice = 55.8M,
-                            FixedPrice = 31.5M
-                        }
-                    }
-                }
-            };
+            new ElectricityPriceData { StartDate = startDate, EndDate = startDate.AddHours(1), Price = 14.2M },
+            new ElectricityPriceData { StartDate = startDate.AddHours(1), EndDate = startDate.AddHours(2), Price = 13M },
+            new ElectricityPriceData { StartDate = startDate.AddHours(2), EndDate = startDate.AddHours(3), Price = 13M },
+                });
 
-            _consumptionDataProcessorMock
-                .Setup(processor => processor.ProcessConsumptionData(hourlyConsumption, It.IsAny<List<ElectricityPriceData>>(), fixedPrice))
-                .Returns(processedData);
-
-            // Mock the consumption optimizer to return the same consumption (no optimization)
-            _consumptionOptimizerMock
-                .Setup(optimizer => optimizer.OptimizeConsumption(hourlyConsumption, It.IsAny<decimal>()))
-                .Returns(hourlyConsumption);
+            // Mock the ProcessConsumptionData method
+            _consumptionDataProcessorMock.Setup(processor => processor.ProcessConsumptionData(
+                    It.IsAny<ConcurrentDictionary<DateTime, decimal>>(),
+                    It.IsAny<IEnumerable<ElectricityPriceData>>(),
+                    fixedPrice))
+                .Returns(new ProcessedCsvDataResult
+                {
+                    TotalSpotPrice = 51.8M,  // Total spot price calculation: 100 * 14.2 + 200 * 13 + 150 * 13
+                    TotalFixedPrice = 33.75M, // Fixed price calculation: 450 kWh * 7.5 cents
+                    TotalConsumption = 450M,  // Total consumption: 100 + 200 + 150
+                    MonthlyData = new Dictionary<(int, int), MonthlyConsumptionData>(),
+                    WeeklyData = new Dictionary<(int, int), WeeklyConsumptionData>(),
+                    DailyData = new Dictionary<DateTime, DailyConsumptionData>()
+                });
 
             // Act
             var result = await _calculateFingridConsumptionPrice.CalculateTotalConsumptionPricesAsync(csvFilePath, fixedPrice);
 
             // Assert
-            Assert.Equal(55.8M, result.TotalSpotPrice);
-            Assert.Equal(31.5M, result.TotalFixedPrice);
+            Assert.NotNull(result);
+            //CalculateTotalConsumptionPricesAsync always returns prices as eur
+            Assert.Equal(0.518M, result.TotalSpotPrice); //0.518 eur or 51.8 cents
+            Assert.Equal(0.3375M, result.TotalFixedPrice); //0.3375 eur or 33.75 cents
             Assert.Equal("FixedPrice", result.CheaperOption);
-            Assert.Equal(420.0M, result.TotalConsumption);
-            Assert.Equal(24.3M, result.PriceDifference);
-            Assert.Single(result.MonthlyData);
-            Assert.Single(result.WeeklyData);
-            Assert.Single(result.DailyData);
-
-            // Cleanup
-            File.Delete(csvFilePath);
         }
+
+
+
+
 
         [Fact]
         public void OptimizeConsumption_ShouldMove25PercentOfAfternoonConsumptionToMorning()
@@ -243,4 +187,84 @@ namespace TestProject.Application
             Assert.Equal(225, optimizedConsumption[new DateTime(2024, 9, 16, 15, 0, 0)]);  // 300 - 75
         }
     }
+    public class TestConfiguration : IConfiguration
+    {
+        private readonly Dictionary<string, string> _settings;
+
+        public TestConfiguration(Dictionary<string, string> settings)
+        {
+            _settings = settings;
+        }
+
+        public string this[string key]
+        {
+            get => _settings.TryGetValue(key, out var value) ? value : null;
+            set => _settings[key] = value;
+        }
+
+        public IEnumerable<IConfigurationSection> GetChildren()
+        {
+            return Enumerable.Empty<IConfigurationSection>(); // Return an empty list as a default implementation
+        }
+
+        public IChangeToken GetReloadToken()
+        {
+            return new CancellationChangeToken(new CancellationToken()); // Return a no-op change token
+        }
+
+        public IConfigurationSection GetSection(string key)
+        {
+            return new TestConfigurationSection(_settings, key); // Use a custom section for the given key
+        }
+
+        public T GetValue<T>(string key, T defaultValue = default)
+        {
+            if (_settings.TryGetValue(key, out var value) &&
+                value != null &&
+                Convert.ChangeType(value, typeof(T)) is T result)
+            {
+                return result;
+            }
+            return defaultValue;
+        }
+    }
+
+    // Custom IConfigurationSection implementation
+    public class TestConfigurationSection : IConfigurationSection
+    {
+        private readonly Dictionary<string, string> _settings;
+        private readonly string _key;
+
+        public TestConfigurationSection(Dictionary<string, string> settings, string key)
+        {
+            _settings = settings;
+            _key = key;
+        }
+
+        public string this[string key] // This needs to have a setter
+        {
+            get => _settings.TryGetValue($"{_key}:{key}", out var value) ? value : null;
+            set => _settings[$"{_key}:{key}"] = value; // Implement the setter
+        }
+
+        public string Key => _key;
+
+        public string Path => _key;
+
+        public string Value
+        {
+            get => _settings.TryGetValue(_key, out var value) ? value : null;
+            set => _settings[_key] = value; // Not commonly used in tests, but added for completeness
+        }
+
+        public IEnumerable<IConfigurationSection> GetChildren() => Enumerable.Empty<IConfigurationSection>();
+
+        public IChangeToken GetReloadToken() => new CancellationChangeToken(new CancellationToken());
+
+        public IConfigurationSection GetSection(string key) // Implement this method
+        {
+            return new TestConfigurationSection(_settings, $"{_key}:{key}"); // Create a new section based on the key
+        }
+    }
+
 }

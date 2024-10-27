@@ -13,7 +13,7 @@ namespace ApplicationLayer.Interfaces
     {
         ProcessedCsvDataResult ProcessConsumptionData(
             ConcurrentDictionary<DateTime, decimal> hourlyConsumption,
-            List<ElectricityPriceData> electricityPrices,
+            IEnumerable<ElectricityPriceData> electricityPrices, 
             decimal? fixedPrice);
     }
 }

@@ -5,7 +5,8 @@ namespace Domain.Interfaces
 {
     public interface IElectricityRepository
     {
-
+        Task<DateTime> GetOldestStartDateAsync();
+        
         Task<bool> AddRangeElectricityPricesAsync(IEnumerable<ElectricityPriceData> electricityPriceDataDtoIn);
         Task<bool> IsDuplicateAsync(DateTime startDate, DateTime endDate);
 

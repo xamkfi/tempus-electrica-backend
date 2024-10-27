@@ -53,7 +53,7 @@ public class Program
         builder.Services.AddDbContext<ElectricityDbContext>(options =>
             options.UseSqlServer(dbConnectionString));
 
-        // Add remaining service registrations
+        //Service registrations
         builder.Services.AddScoped<IElectrictyService, ElectrictyService>();
         builder.Services.AddScoped<IElectricityRepository, ElectricityRepository>();
         builder.Services.AddScoped<ISaveHistoryDataService, SaveHistoryDataService>();
@@ -64,7 +64,10 @@ public class Program
         builder.Services.AddScoped<IConsumptionOptimizer, ConsumptionOptimizer>();
         builder.Services.AddScoped<ICalculateFingridConsumptionPrice, CalculateFinGridConsumptionPriceService>();
 
+        //Hosted Services
+        builder.Services.AddHostedService<DataLoaderHostedService>();
         builder.Services.AddHostedService<ElectricityPriceFetchingBackgroundService>();
+        
 
         builder.Services.AddMemoryCache();
 

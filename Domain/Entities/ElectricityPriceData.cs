@@ -1,9 +1,16 @@
-﻿namespace Domain.Entities
+﻿using System.Text.Json.Serialization;
+
+namespace Domain.Entities
 {
     public class ElectricityPriceData : BaseEntity
     {
+        
         public DateTime EndDate { get; set; }
+
+        [JsonPropertyName("date")]
         public DateTime StartDate { get; set; }
+
+        [JsonPropertyName("value")]
         public decimal Price { get; set; }
 
         public ElectricityPriceData ToEntity()

@@ -8,7 +8,5 @@ namespace ApplicationLayer.Interfaces
     {
         Task<ElectricityPriceResultDto> GetElectricityPriceDataAsync(CombinedRequestDtoIn request);
 
-        Task<List<ElectricityPriceData>> GetElectricityPricesAsync(DateTime startDate, DateTime endDate);
-
     }
 }
