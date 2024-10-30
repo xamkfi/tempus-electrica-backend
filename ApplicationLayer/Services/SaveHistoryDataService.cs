@@ -24,9 +24,13 @@ namespace ApplicationLayer.Services
         {
             try
             {
-                var oldestDateInDb = await _electricityRepository.GetOldestStartDateAsync();
+
+                //Fetch oldest startdate on database
+                 var oldestDateInDb = await _electricityRepository.GetOldestStartDateAsync();
                 var cutoffDate = new DateTime(2015, 1, 1, 2, 0, 0, DateTimeKind.Utc);
 
+                //If oldest startdate in database equals cutoffDate, then no data has been fetched
+                //If there is no data in db, or oldest startdate doesnt equal cutooffDate, then this logic is runned
                 if (oldestDateInDb <= cutoffDate)
                 {
                     _logger.LogInformation("No new data to fetch; the database is already up to date.");
@@ -61,7 +65,7 @@ namespace ApplicationLayer.Services
                     // Fetch existing records from the database to filter out duplicates
                     var existingRecords = await _electricityRepository.GetPricesForPeriodAsync(cutoffDate, DateTime.UtcNow);
                     var existingRecordSet = new HashSet<(DateTime Start, DateTime End)>(existingRecords.Select(e => (e.StartDate, e.EndDate)));
-
+                    //Convert datetimes to finnish timezone
                     var finnishTimeZone = TimeZoneInfo.FindSystemTimeZoneById("FLE Standard Time");
                     var nonDuplicateDataList = new List<ElectricityPriceData>();
 
