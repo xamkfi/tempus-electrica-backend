@@ -41,13 +41,11 @@ namespace ApplicationLayer.Services
             Error
         }
 
-        public async Task<ConsumptionPriceCalculationResult> CalculateTotalConsumptionPricesAsync(
-    string csvFilePath,
-    decimal? fixedPrice)
+        public async Task<ConsumptionPriceCalculationResult> CalculateTotalConsumptionPricesAsync(string csvFilePath, decimal? fixedPrice)
         {
             _logger.LogInformation("Start calculating total consumption prices.");
 
-            if (string.IsNullOrEmpty(csvFilePath) || !File.Exists(csvFilePath))
+            if (string.IsNullOrEmpty(csvFilePath))
             {
                 _logger.LogError("CSV file path is invalid or file does not exist: {csvFilePath}", csvFilePath);
                 return GetDefaultResult();
@@ -162,7 +160,6 @@ namespace ApplicationLayer.Services
             };
         }
     }
-
     public class CalculationException : Exception
     {
         public CalculationException(string message, Exception innerException)

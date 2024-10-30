@@ -33,7 +33,7 @@ namespace TestProject.Application
             // Use a dictionary to simulate IConfiguration
             var inMemorySettings = new Dictionary<string, string>
         {
-            {"OptimizePercentage", "0.25"} 
+            {"OptimizePercentage", "0.25"}
         };
 
             // Create the custom configuration
@@ -51,7 +51,7 @@ namespace TestProject.Application
         }
 
 
-        
+
 
 
         [Fact]
@@ -115,9 +115,9 @@ namespace TestProject.Application
             _electricityRepositoryMock.Setup(repo => repo.GetPricesForPeriodAsync(startDate, endDate))
                 .ReturnsAsync(new List<ElectricityPriceData>
                 {
-            new ElectricityPriceData { StartDate = startDate, EndDate = startDate.AddHours(1), Price = 14.2M },
-            new ElectricityPriceData { StartDate = startDate.AddHours(1), EndDate = startDate.AddHours(2), Price = 13M },
-            new ElectricityPriceData { StartDate = startDate.AddHours(2), EndDate = startDate.AddHours(3), Price = 13M },
+                    new ElectricityPriceData { StartDate = startDate, EndDate = startDate.AddHours(1), Price = 14.2M },
+                    new ElectricityPriceData { StartDate = startDate.AddHours(1), EndDate = startDate.AddHours(2), Price = 13M },
+                    new ElectricityPriceData { StartDate = startDate.AddHours(2), EndDate = startDate.AddHours(3), Price = 13M },
                 });
 
             // Mock the ProcessConsumptionData method
