@@ -53,14 +53,22 @@ public class Program
         builder.Services.AddDbContext<ElectricityDbContext>(options =>
             options.UseSqlServer(dbConnectionString));
 
-        // Add remaining service registrations
+        //Service registrations
         builder.Services.AddScoped<IElectrictyService, ElectrictyService>();
         builder.Services.AddScoped<IElectricityRepository, ElectricityRepository>();
         builder.Services.AddScoped<ISaveHistoryDataService, SaveHistoryDataService>();
         builder.Services.AddScoped<IDateRangeDataService, DateRangeDataService>();
-        builder.Services.AddScoped<ICalculateFingridConsumptionPrice, CalculateFinGridConsumptionPriceService>();
-        builder.Services.AddHostedService<ElectricityPriceFetchingBackgroundService>();
+        builder.Services.AddScoped<ICsvReaderService, CsvReaderService>();
         builder.Services.AddScoped<IElectricityPriceService, ElectricityPriceService>();
+        builder.Services.AddScoped<IConsumptionDataProcessor, ConsumptionDataProcessor>();
+        builder.Services.AddScoped<IConsumptionOptimizer, ConsumptionOptimizer>();
+        builder.Services.AddScoped<ICalculateFingridConsumptionPrice, CalculateFinGridConsumptionPriceService>();
+
+        //Hosted Services
+        builder.Services.AddHostedService<DataLoaderHostedService>();
+        builder.Services.AddHostedService<ElectricityPriceFetchingBackgroundService>();
+        
+
         builder.Services.AddMemoryCache();
 
         // Health checks setup

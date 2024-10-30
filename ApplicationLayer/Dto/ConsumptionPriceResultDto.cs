@@ -1,5 +1,5 @@
 ﻿using ApplicationLayer.Dto;
-
+using ApplicationLayer.Dto.Consumption.Consumption;
 public class ConsumptionPriceCalculationResult
 {
     public decimal TotalSpotPrice { get; set; }

@@ -20,7 +20,12 @@ namespace Infrastructure.Repositories
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _cache = cache ?? throw new ArgumentNullException(nameof(cache));
         }
-
+        public async Task<DateTime> GetOldestStartDateAsync()
+        {
+            return await _context.ElectricityPriceDatas
+                .MinAsync(e => (DateTime?)e.StartDate) ?? DateTime.MaxValue;
+        }
+        
         public async Task<bool> AddRangeElectricityPricesAsync(IEnumerable<ElectricityPriceData> electricityPriceDataDtoIn)
         {
             if (electricityPriceDataDtoIn == null || !electricityPriceDataDtoIn.Any())

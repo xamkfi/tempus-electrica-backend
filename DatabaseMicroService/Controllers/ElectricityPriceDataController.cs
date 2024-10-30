@@ -32,30 +32,7 @@ namespace DatabaseMicroService.Controllers
             _calculateFinGridConsumptionPrice = calculateFingridConsumptionPrice;
         }
 
-        [HttpPost("UploadHistoryData")]
-        [Authorize]
-        public async Task<IActionResult> SaveElectricityPrices(IFormFile file)
-        {
-            LogRequestDetails("upload historical electricity price data");
-
-            if (file == null || file.Length == 0)
-            {
-                _logger.LogWarning("No file received in the request.");
-                return BadRequest("File not received");
-            }
-
-            try
-            {
-                await _saveHistoryDataService.ProcessCsvFileAsync(file);
-                _logger.LogInformation("Historical data successfully processed and saved to the database.");
-                return Ok("Data received and saved to the database.");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Exception occurred while processing historical data file.");
-                return StatusCode(StatusCodes.Status500InternalServerError, "Something went wrong.");
-            }
-        }
+        
 
         [HttpGet("GetPricesForPeriod")]
         public async Task<IActionResult> GetPricesForPeriod([FromQuery] DateTime? startDate, [FromQuery] DateTime? endDate)

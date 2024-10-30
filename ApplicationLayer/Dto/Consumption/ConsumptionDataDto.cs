@@ -1,4 +1,4 @@
-﻿namespace ApplicationLayer.Dto
+﻿namespace ApplicationLayer.Dto.Consumption.Consumption
 {
     public class MonthlyConsumptionData
     {
