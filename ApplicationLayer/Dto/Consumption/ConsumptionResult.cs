@@ -4,7 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace ApplicationLayer.Dto
+namespace ApplicationLayer.Dto.Consumption
 {
     public class ConsumptionSettings
     {

@@ -1,4 +1,4 @@
-﻿using ApplicationLayer.Dto;
+﻿using ApplicationLayer.Dto.Consumption;
 
 public interface ICalculateFingridConsumptionPrice
 {

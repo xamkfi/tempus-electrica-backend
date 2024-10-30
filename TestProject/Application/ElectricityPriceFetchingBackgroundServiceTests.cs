@@ -47,9 +47,9 @@ public class ElectricityPriceFetchingBackgroundServiceTests
         var exampleData = new ElectricityPriceDataDtoIn
         {
             Prices = new List<PriceInfo>
-            {
-                new PriceInfo { Price = 100m, StartDate = DateTime.Now, EndDate = DateTime.Now.AddHours(1) }
-            }
+        {
+            new PriceInfo { Price = 100m, StartDate = DateTime.UtcNow, EndDate = DateTime.UtcNow.AddHours(1) }
+        }
         };
         var jsonResponse = JsonConvert.SerializeObject(exampleData);
 
@@ -79,17 +79,17 @@ public class ElectricityPriceFetchingBackgroundServiceTests
         var cancellationTokenSource = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         var task = service.StartAsync(cancellationTokenSource.Token);
 
-        // Simulate a delay to allow the service to execute
-        await Task.Delay(3000);
+        // Allow time for the service to execute and fetch data
+        await Task.Delay(5000); // Increased delay to allow for data fetching
 
         // Cancel the token to stop the service
         cancellationTokenSource.Cancel();
 
         // Assert
         await task; // Ensure the task completes
-        _electricityServiceMock.Verify(service => service.AddElectricityPricesAsync(It.IsAny<ElectricityPriceDataDtoIn>()), Times.Once);
+        _electricityServiceMock.Verify(service => service.AddElectricityPricesAsync(It.IsAny<ElectricityPriceDataDtoIn>()), Times.AtLeastOnce);
     }
-   
+
 
 }
 

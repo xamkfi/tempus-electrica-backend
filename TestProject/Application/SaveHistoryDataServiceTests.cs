@@ -1,114 +1,188 @@
-﻿using ApplicationLayer.Services;
+﻿using ApplicationLayer.Dto;
+using ApplicationLayer.Services;
 using Domain.Entities;
 using Domain.Interfaces;
-using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Moq;
+using Moq.Protected;
+using System.Net;
+using System.Text.Json;
 
-namespace ApplicationLayer.Tests
+
+public class SaveHistoryDataServiceTests
 {
-    public class SaveHistoryDataServiceTests
+    private readonly Mock<IElectricityRepository> _mockRepository;
+    private readonly Mock<IHttpClientFactory> _mockHttpClientFactory;
+    private readonly Mock<ILogger<SaveHistoryDataService>> _mockLogger;
+    private readonly SaveHistoryDataService _service;
+
+    public SaveHistoryDataServiceTests()
     {
-        private readonly Mock<IElectricityRepository> _mockElectricityRepository;
-        private readonly Mock<ILogger<SaveHistoryDataService>> _mockLogger;
-        private readonly SaveHistoryDataService _saveHistoryDataService;
+        _mockRepository = new Mock<IElectricityRepository>();
+        _mockHttpClientFactory = new Mock<IHttpClientFactory>();
+        _mockLogger = new Mock<ILogger<SaveHistoryDataService>>();
+        _service = new SaveHistoryDataService(_mockHttpClientFactory.Object, _mockRepository.Object, _mockLogger.Object);
+    }
 
-        public SaveHistoryDataServiceTests()
+    [Fact]
+    public async Task LoadDataAsync_SuccessfulApiCall_StoresDataInRepository()
+    {
+        // Arrange
+        var mockHttpClient = new Mock<HttpMessageHandler>(MockBehavior.Strict);
+        var pricesResponse = new ElectricityPricesResponse
         {
-            _mockElectricityRepository = new Mock<IElectricityRepository>();
-            _mockLogger = new Mock<ILogger<SaveHistoryDataService>>();
-            _saveHistoryDataService = new SaveHistoryDataService(_mockElectricityRepository.Object, _mockLogger.Object);
-        }
+            Prices = new List<ElectricityPriceData>
+            {
+                new ElectricityPriceData { StartDate = DateTime.UtcNow, EndDate = DateTime.UtcNow.AddHours(1), Price = 10.5M },
+                new ElectricityPriceData { StartDate = DateTime.UtcNow.AddHours(1), EndDate = DateTime.UtcNow.AddHours(2), Price = 11.0M }
+            }
+        };
 
-        [Fact]
-        public async Task ProcessCsvFileAsync_ShouldReturnTrue_WhenFileIsProcessedSuccessfully()
-        {
-            // Arrange
-            var mockFile = new Mock<IFormFile>();
-            var content = "Timestamp;Price\n2024-05-01T00:00:00;100.5\n2024-05-01T01:00:00;150.75";
-            var fileName = "test.csv";
-            var ms = new MemoryStream();
-            var writer = new StreamWriter(ms);
-            writer.Write(content);
-            writer.Flush();
-            ms.Position = 0;
-            mockFile.Setup(f => f.OpenReadStream()).Returns(ms);
-            mockFile.Setup(f => f.FileName).Returns(fileName);
-            mockFile.Setup(f => f.Length).Returns(ms.Length);
+        mockHttpClient.Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync(new HttpResponseMessage
+            {
+                StatusCode = HttpStatusCode.OK,
+                Content = new StringContent(JsonSerializer.Serialize(pricesResponse)),
+            })
+            .Verifiable();
 
-            _mockElectricityRepository
-                .Setup(repo => repo.GetDuplicatesAsync(It.IsAny<List<DateTime>>(), It.IsAny<List<DateTime>>()))
-                .ReturnsAsync(new List<ElectricityPriceData>());
+        var httpClient = new HttpClient(mockHttpClient.Object);
+        _mockHttpClientFactory.Setup(_ => _.CreateClient(It.IsAny<string>())).Returns(httpClient);
 
-            _mockElectricityRepository
-                .Setup(repo => repo.AddBatchElectricityPricesAsync(It.IsAny<IEnumerable<ElectricityPriceData>>()))
-                .ReturnsAsync(true);
+        // Set up the mock for GetLatestStartDateAsync and GetPricesForPeriodAsync
+        _mockRepository.Setup(repo => repo.GetOldestStartDateAsync()).ReturnsAsync(DateTime.UtcNow.AddYears(-1));
+        _mockRepository.Setup(repo => repo.GetPricesForPeriodAsync(It.IsAny<DateTime>(), It.IsAny<DateTime>()))
+                       .ReturnsAsync(new List<ElectricityPriceData>()); // No existing records
 
-            // Act
-            var result = await _saveHistoryDataService.ProcessCsvFileAsync(mockFile.Object);
+        // Act
+        await _service.LoadDataAsync();
 
-            // Assert
-            Assert.True(result);
-            _mockElectricityRepository.Verify(repo => repo.AddBatchElectricityPricesAsync(It.IsAny<IEnumerable<ElectricityPriceData>>()), Times.Once);
-        }
+        // Assert
+        _mockRepository.Verify(repo => repo.AddBatchElectricityPricesAsync(It.IsAny<List<ElectricityPriceData>>()), Times.Once);
+        _mockLogger.Verify(
+            x => x.Log(
+                It.Is<LogLevel>(l => l == LogLevel.Information),
+                It.IsAny<EventId>(),
+                It.Is<It.IsAnyType>((v, t) => v.ToString().Contains("Data loading completed successfully.")),
+                It.IsAny<Exception>(),
+                It.Is<Func<It.IsAnyType, Exception, string>>((v, t) => true)),
+            Times.AtLeastOnce);
+    }
 
-        [Fact]
-        public async Task ProcessCsvFileAsync_ShouldReturnFalse_WhenExceptionIsThrown()
-        {
-            // Arrange
-            var mockFile = new Mock<IFormFile>();
-            var content = "Timestamp;Price\n2024-05-01T00:00:00;100.5\n2024-05-01T01:00:00;150.75";
-            var fileName = "test.csv";
-            var ms = new MemoryStream();
-            var writer = new StreamWriter(ms);
-            writer.Write(content);
-            writer.Flush();
-            ms.Position = 0;
-            mockFile.Setup(f => f.OpenReadStream()).Returns(ms);
-            mockFile.Setup(f => f.FileName).Returns(fileName);
-            mockFile.Setup(f => f.Length).Returns(ms.Length);
+    [Fact]
+    public async Task LoadDataAsync_ApiReturnsNoData_LogsInformation()
+    {
+        // Arrange
+        var mockHttpClient = new Mock<HttpMessageHandler>(MockBehavior.Strict);
+        var emptyResponse = new ElectricityPricesResponse { Prices = new List<ElectricityPriceData>() };
 
-            _mockElectricityRepository
-                .Setup(repo => repo.GetDuplicatesAsync(It.IsAny<List<DateTime>>(), It.IsAny<List<DateTime>>()))
-                .ThrowsAsync(new Exception("Database error"));
+        mockHttpClient.Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync(new HttpResponseMessage
+            {
+                StatusCode = HttpStatusCode.OK,
+                Content = new StringContent(JsonSerializer.Serialize(emptyResponse)),
+            })
+            .Verifiable();
 
-            // Act
-            var result = await _saveHistoryDataService.ProcessCsvFileAsync(mockFile.Object);
+        var httpClient = new HttpClient(mockHttpClient.Object);
+        _mockHttpClientFactory.Setup(_ => _.CreateClient(It.IsAny<string>())).Returns(httpClient);
 
-            // Assert
-            Assert.False(result);
-            _mockLogger.Verify(
-                x => x.Log(
-                    It.Is<LogLevel>(l => l == LogLevel.Error),
-                    It.IsAny<EventId>(),
-                    It.Is<It.IsAnyType>((v, t) => v.ToString().Contains("Error processing electricity price data")),
-                    It.IsAny<Exception>(),
-                    (Func<It.IsAnyType, Exception, string>)It.IsAny<object>()),
-                Times.Once);
-        }
+        // Set up the mock for GetLatestStartDateAsync
+        _mockRepository.Setup(repo => repo.GetOldestStartDateAsync()).ReturnsAsync(DateTime.UtcNow.AddYears(-1));
+        _mockRepository.Setup(repo => repo.GetPricesForPeriodAsync(It.IsAny<DateTime>(), It.IsAny<DateTime>()))
+                       .ReturnsAsync(new List<ElectricityPriceData>()); // No existing records
 
-        [Fact]
-        public async Task ProcessCsvFileAsync_ShouldNotProcessRecords_WhenFileIsEmpty()
-        {
-            // Arrange
-            var mockFile = new Mock<IFormFile>();
-            var content = "Timestamp;Price";
-            var fileName = "test.csv";
-            var ms = new MemoryStream();
-            var writer = new StreamWriter(ms);
-            writer.Write(content);
-            writer.Flush();
-            ms.Position = 0;
-            mockFile.Setup(f => f.OpenReadStream()).Returns(ms);
-            mockFile.Setup(f => f.FileName).Returns(fileName);
-            mockFile.Setup(f => f.Length).Returns(ms.Length);
+        // Act
+        await _service.LoadDataAsync();
 
-            // Act
-            var result = await _saveHistoryDataService.ProcessCsvFileAsync(mockFile.Object);
+        // Assert
+        _mockLogger.Verify(
+            x => x.Log(
+                It.Is<LogLevel>(l => l == LogLevel.Information),
+                It.IsAny<EventId>(),
+                It.Is<It.IsAnyType>((v, t) => v.ToString().Contains("No data received from the API.")),
+                It.IsAny<Exception>(),
+                It.Is<Func<It.IsAnyType, Exception, string>>((v, t) => true)),
+            Times.Once);
+        _mockRepository.Verify(repo => repo.AddBatchElectricityPricesAsync(It.IsAny<List<ElectricityPriceData>>()), Times.Never);
+    }
 
-            // Assert
-            Assert.True(result);
-            _mockElectricityRepository.Verify(repo => repo.AddBatchElectricityPricesAsync(It.IsAny<IEnumerable<ElectricityPriceData>>()), Times.Never);
-        }
+    [Fact]
+    public async Task LoadDataAsync_ApiCallFails_LogsError()
+    {
+        // Arrange
+        var mockHttpClient = new Mock<HttpMessageHandler>(MockBehavior.Strict);
+
+        mockHttpClient.Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync(new HttpResponseMessage
+            {
+                StatusCode = HttpStatusCode.InternalServerError
+            })
+            .Verifiable();
+
+        var httpClient = new HttpClient(mockHttpClient.Object);
+        _mockHttpClientFactory.Setup(_ => _.CreateClient(It.IsAny<string>())).Returns(httpClient);
+
+        // Set up the mock for GetLatestStartDateAsync
+        _mockRepository.Setup(repo => repo.GetOldestStartDateAsync()).ReturnsAsync(DateTime.UtcNow.AddYears(-1));
+
+        // Act
+        await _service.LoadDataAsync();
+
+        // Assert
+        _mockLogger.Verify(
+            x => x.Log(
+                It.Is<LogLevel>(l => l == LogLevel.Error),
+                It.IsAny<EventId>(),
+                It.Is<It.IsAnyType>((v, t) => v.ToString().Contains("API call failed with status code")),
+                It.IsAny<Exception>(),
+                It.Is<Func<It.IsAnyType, Exception, string>>((v, t) => true)),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task LoadDataAsync_ExceptionThrown_LogsError()
+    {
+        // Arrange
+        var mockHttpClient = new Mock<HttpMessageHandler>(MockBehavior.Strict);
+
+        mockHttpClient.Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ThrowsAsync(new Exception("Test exception"))
+            .Verifiable();
+
+        var httpClient = new HttpClient(mockHttpClient.Object);
+        _mockHttpClientFactory.Setup(_ => _.CreateClient(It.IsAny<string>())).Returns(httpClient);
+
+        // Set up the mock for GetLatestStartDateAsync
+        _mockRepository.Setup(repo => repo.GetOldestStartDateAsync()).ReturnsAsync(DateTime.UtcNow.AddYears(-1));
+
+        // Act
+        await _service.LoadDataAsync();
+
+        // Assert
+        _mockLogger.Verify(
+            x => x.Log(
+                It.Is<LogLevel>(l => l == LogLevel.Error),
+                It.IsAny<EventId>(),
+                It.Is<It.IsAnyType>((v, t) => v.ToString().Contains("An error occurred while loading data")),
+                It.IsAny<Exception>(),
+                It.Is<Func<It.IsAnyType, Exception, string>>((v, t) => true)),
+            Times.Once);
     }
 }
