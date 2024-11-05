@@ -81,8 +81,6 @@ namespace ApplicationLayer.Services
                 var helsinkiTimeZone = TimeZoneInfo.FindSystemTimeZoneById("FLE Standard Time");
                 var helsinkiTimestamp = TimeZoneInfo.ConvertTimeFromUtc(timestamp, helsinkiTimeZone);
 
-                _logger.LogInformation("Converted UTC time {UtcTime} to Helsinki time {HelsinkiTime}", timestamp, helsinkiTimestamp);
-
                 return (helsinkiTimestamp, consumption);
             }
             catch (TimeZoneNotFoundException)
