@@ -12,7 +12,7 @@ on:
       - master  
 
 env:
-  AZURE_WEBAPP_NAME: DatabaseMicroService20241030163728 
+  AZURE_WEBAPP_NAME: tempuselectriciaprod 
   DOTNET_VERSION: '8.0.x'
 
 jobs:
@@ -47,9 +47,9 @@ jobs:
         run: dotnet ef migrations bundle --self-contained --force
         working-directory: ./DatabaseMicroService
 
-    #  - name: Run Migrations
-    #    run: pwsh -Command "./efbundle --connection '${{ secrets.PRODUCTION_DB }}'"
-    #     working-directory: ./DatabaseMicroService
+      - name: Run Migrations
+        run: pwsh -Command "./efbundle --connection '${{ secrets.PRODUCTION_DB }}'"
+        working-directory: ./DatabaseMicroService
 
       - name: Build with dotnet
         run: dotnet build --configuration Release --output .\build\
