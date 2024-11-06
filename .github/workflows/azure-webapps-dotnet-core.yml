@@ -1,4 +1,4 @@
-name: CD
+name: CD_Prod
 
 on:
   workflow_run:
@@ -12,7 +12,7 @@ on:
       - master  
 
 env:
-  AZURE_WEBAPP_NAME: DatabaseMicroService20240809132034 
+  AZURE_WEBAPP_NAME: tempuselectriciaprod
   DOTNET_VERSION: '8.0.x'
 
 jobs:
@@ -47,9 +47,9 @@ jobs:
         run: dotnet ef migrations bundle --self-contained --force
         working-directory: ./DatabaseMicroService
 
-      - name: Run Migrations
-        run: pwsh -Command "./efbundle --connection '${{ secrets.CONNECTION_STRING }}'"
-        working-directory: ./DatabaseMicroService
+    #  - name: Run Migrations
+    #    run: pwsh -Command "./efbundle --connection '${{ secrets.CONNECTION_STRING }}'"
+     #   working-directory: ./DatabaseMicroService
 
       - name: Build with dotnet
         run: dotnet build --configuration Release --output .\build\
