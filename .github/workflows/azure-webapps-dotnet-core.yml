@@ -1,4 +1,4 @@
-name: CD_Prod
+name: Production CD
 
 on:
   workflow_run:
@@ -50,6 +50,7 @@ jobs:
     #  - name: Run Migrations
     #    run: pwsh -Command "./efbundle --connection '${{ secrets.CONNECTION_STRING }}'"
      #   working-directory: ./DatabaseMicroService
+
 
       - name: Build with dotnet
         run: dotnet build --configuration Release --output .\build\
