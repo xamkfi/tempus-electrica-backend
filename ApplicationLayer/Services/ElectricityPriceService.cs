@@ -188,7 +188,7 @@ namespace ApplicationLayer.Services
             };
         }
 
-        private (decimal Min, decimal Average, decimal Max) CalculateHousingConsumption(HouseType houseType, int squareMeters)
+        private (decimal Min, decimal Average, decimal Max) CalculateHousingConsumption(HouseType houseType, decimal squareMeters)
         {
             if (squareMeters <= 0)
             {
@@ -198,7 +198,7 @@ namespace ApplicationLayer.Services
 
             return houseType switch
             {
-                HouseType.ApartmentHouse => (squareMeters * 20, squareMeters * 25, squareMeters * 30),
+                HouseType.ApartmentHouse => (squareMeters * 14, squareMeters * 20, squareMeters * 28),
                 HouseType.TerracedHouse => (squareMeters * 100, squareMeters * 110, squareMeters * 120),
                 HouseType.DetachedHouse => (squareMeters * 115, squareMeters * 130, squareMeters * 145),
                 HouseType.Cottage => (squareMeters * 110, squareMeters * 120, squareMeters * 130),
