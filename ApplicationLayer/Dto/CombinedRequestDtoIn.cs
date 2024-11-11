@@ -77,7 +77,7 @@ namespace ApplicationLayer.Dto
         public HouseType HouseType { get; set; }
 
         [Required]
-        public int SquareMeters { get; set; }
+        public decimal SquareMeters { get; set; }
 
         [Required]
         public WorkShiftType WorkShiftType { get; set; }
@@ -105,7 +105,7 @@ namespace ApplicationLayer.Dto
         public int? SolarPanel { get; set; }
         [Required]
         public bool HasFloorHeating { get; set; }
-        public int? FloorSquareMeters { get; set; }
+        public decimal? FloorSquareMeters { get; set; }
     }
 
     public enum HouseType
