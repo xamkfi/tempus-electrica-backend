@@ -50,7 +50,7 @@ namespace TestProject.Application
             );
         }
 
-
+        decimal marginal = 0.00M;
 
 
 
@@ -62,7 +62,7 @@ namespace TestProject.Application
             decimal fixedPrice = 0.20m;
 
             // Act
-            var result = await _calculateFingridConsumptionPrice.CalculateTotalConsumptionPricesAsync(csvFilePath, fixedPrice);
+            var result = await _calculateFingridConsumptionPrice.CalculateTotalConsumptionPricesAsync(csvFilePath, fixedPrice, marginal);
 
             // Assert
             Assert.Equal(0, result.TotalSpotPrice);
@@ -83,7 +83,7 @@ namespace TestProject.Application
                 .ThrowsAsync(new CsvReadingException("Invalid CSV format.", null));
 
             // Act
-            var result = await _calculateFingridConsumptionPrice.CalculateTotalConsumptionPricesAsync(csvFilePath, fixedPrice);
+            var result = await _calculateFingridConsumptionPrice.CalculateTotalConsumptionPricesAsync(csvFilePath, fixedPrice, marginal);
 
             // Assert
             Assert.Equal(0, result.TotalSpotPrice);
@@ -124,7 +124,7 @@ namespace TestProject.Application
             _consumptionDataProcessorMock.Setup(processor => processor.ProcessConsumptionData(
                     It.IsAny<ConcurrentDictionary<DateTime, decimal>>(),
                     It.IsAny<IEnumerable<ElectricityPriceData>>(),
-                    fixedPrice))
+                    fixedPrice, marginal))
                 .Returns(new ProcessedCsvDataResult
                 {
                     TotalSpotPrice = 51.8M,  // Total spot price calculation: 100 * 14.2 + 200 * 13 + 150 * 13
@@ -136,7 +136,7 @@ namespace TestProject.Application
                 });
 
             // Act
-            var result = await _calculateFingridConsumptionPrice.CalculateTotalConsumptionPricesAsync(csvFilePath, fixedPrice);
+            var result = await _calculateFingridConsumptionPrice.CalculateTotalConsumptionPricesAsync(csvFilePath, fixedPrice, marginal);
 
             // Assert
             Assert.NotNull(result);
