@@ -14,6 +14,6 @@ namespace ApplicationLayer.Interfaces
         ProcessedCsvDataResult ProcessConsumptionData(
             ConcurrentDictionary<DateTime, decimal> hourlyConsumption,
             IEnumerable<ElectricityPriceData> electricityPrices, 
-            decimal? fixedPrice);
+            decimal? fixedPrice, decimal? marginal);
     }
 }
