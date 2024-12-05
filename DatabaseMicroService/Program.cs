@@ -25,11 +25,7 @@ public class Program
 
         builder.Services.AddEndpointsApiExplorer();
         builder.Services.AddHttpClient();
-        builder.Services.AddApplicationInsightsTelemetry(options =>
-        {
-            options.ConnectionString = builder.Configuration["ApplicationInsights:InstrumentationKey"];
-        });
-
+        builder.Services.AddApplicationInsightsTelemetry();
 
         builder.Services.AddSingleton<IKeyVaultSecretManager, KeyVaultSecretManager>();
 
