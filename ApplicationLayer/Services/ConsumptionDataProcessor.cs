@@ -25,7 +25,7 @@ namespace ApplicationLayer.Services
         public ProcessedCsvDataResult ProcessConsumptionData(
     ConcurrentDictionary<DateTime, decimal> hourlyConsumption,
     IEnumerable<ElectricityPriceData> electricityPrices, 
-    decimal? fixedPrice)
+    decimal? fixedPrice, decimal? marginal)
         {
             _logger.LogInformation("Processing consumption data.");
 
@@ -47,7 +47,7 @@ namespace ApplicationLayer.Services
 
             foreach (var (hourlyTimestamp, consumption) in hourlyConsumption)
             {
-                var spotPrice = CalculatePricesForConsumption(hourlyTimestamp, consumption, priceLookup);
+                var spotPrice = CalculatePricesForConsumption(hourlyTimestamp, consumption, priceLookup, marginal);
                 totalSpotPrice += spotPrice;
 
                 var fixedCost = fixedPrice.HasValue ? consumption * fixedPrice.Value : 0;
@@ -73,19 +73,29 @@ namespace ApplicationLayer.Services
         }
 
         private decimal CalculatePricesForConsumption(
-            DateTime timestamp,
-            decimal consumption,
-            Dictionary<DateTime, ElectricityPriceData> priceLookup)
+    DateTime timestamp,
+    decimal consumption,
+    Dictionary<DateTime, ElectricityPriceData> priceLookup,
+    decimal? marginal)
         {
-            if (priceLookup.TryGetValue(timestamp, out var price))
-            {
-                return consumption * price.Price;
-            }
-            else
+            // Check if the price lookup contains the price for the given timestamp
+            if (!priceLookup.TryGetValue(timestamp, out var price))
             {
                 _logger.LogWarning("No price found for timestamp: {timestamp}", timestamp);
-                return 0;
+                return 0;  
             }
+
+            // Calculate spot price based on the price for the timestamp
+            decimal spotPrice = consumption * price.Price;
+
+            // Add the marginal cost if available
+            if (marginal.HasValue)
+            {
+                decimal marginalCost = consumption * marginal.Value;
+                spotPrice += marginalCost;
+            }
+
+            return spotPrice;
         }
 
         private void CalculateMonthlyData(

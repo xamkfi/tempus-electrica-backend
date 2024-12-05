@@ -41,7 +41,7 @@ namespace ApplicationLayer.Services
             Error
         }
 
-        public async Task<ConsumptionPriceCalculationResult> CalculateTotalConsumptionPricesAsync(string csvFilePath, decimal? fixedPrice)
+        public async Task<ConsumptionPriceCalculationResult> CalculateTotalConsumptionPricesAsync(string csvFilePath, decimal? fixedPrice, decimal? marginal)
         {
             _logger.LogInformation("Start calculating total consumption prices.");
 
@@ -75,7 +75,7 @@ namespace ApplicationLayer.Services
                 }
 
                 _logger.LogInformation("Processing consumption data.");
-                var processedData = _consumptionDataProcessor.ProcessConsumptionData(hourlyConsumption, electricityPrices, fixedPrice);
+                var processedData = _consumptionDataProcessor.ProcessConsumptionData(hourlyConsumption, electricityPrices, fixedPrice, marginal);
        
                 
                 var cheaperOption = DetermineCheaperOption(processedData.TotalSpotPrice, processedData.TotalFixedPrice, fixedPrice);
@@ -84,7 +84,7 @@ namespace ApplicationLayer.Services
 
                 _logger.LogInformation("Optimizing consumption.");
                 var optimizedConsumption = _consumptionOptimizer.OptimizeConsumption(hourlyConsumption, _optimizePercentage);
-                var optimizedData = _consumptionDataProcessor.ProcessConsumptionData(optimizedConsumption, electricityPrices, fixedPrice);
+                var optimizedData = _consumptionDataProcessor.ProcessConsumptionData(optimizedConsumption, electricityPrices, fixedPrice, marginal);
 
                 var optimizedPriceDifference = Math.Abs(optimizedData.TotalSpotPrice - processedData.TotalFixedPrice) / 100;
 

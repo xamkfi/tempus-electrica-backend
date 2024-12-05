@@ -56,7 +56,7 @@ namespace DatabaseMicroService.Controllers
         }
 
         [HttpPost("UploadFinGridConsumptionFile")]
-        public async Task<IActionResult> UploadCsv(IFormFile file, [FromQuery] decimal? fixedPrice)
+        public async Task<IActionResult> UploadCsv(IFormFile file, [FromQuery] decimal? fixedPrice, decimal? marginal)
         {
             // Start a stopwatch to measure response time
             var stopwatch = Stopwatch.StartNew();
@@ -80,7 +80,7 @@ namespace DatabaseMicroService.Controllers
                     return BadRequest("Fixed price not received");
                 }
 
-                var result = await _calculateFinGridConsumptionPrice.CalculateTotalConsumptionPricesAsync(filePath, fixedPrice);
+                var result = await _calculateFinGridConsumptionPrice.CalculateTotalConsumptionPricesAsync(filePath, fixedPrice, marginal);
 
                 // Stop the stopwatch and log the response time and status code
                 stopwatch.Stop();
