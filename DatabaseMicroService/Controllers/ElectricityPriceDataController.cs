@@ -32,7 +32,7 @@ namespace DatabaseMicroService.Controllers
             _calculateFinGridConsumptionPrice = calculateFingridConsumptionPrice;
         }
 
-        
+
 
         [HttpGet("GetPricesForPeriod")]
         public async Task<IActionResult> GetPricesForPeriod([FromQuery] DateTime? startDate, [FromQuery] DateTime? endDate)
@@ -41,6 +41,10 @@ namespace DatabaseMicroService.Controllers
 
             if (startDate == null || endDate == null)
                 return BadRequest("Missing date values");
+            else if (startDate == endDate)
+            {
+                endDate = endDate.Value.AddHours(24);
+            }
 
             try
             {
@@ -125,7 +129,7 @@ namespace DatabaseMicroService.Controllers
                 // Updated to match the new method signature
                 var result = await _electricityService.GetElectricityPriceDataAsync(request);
 
-                var calculationYears = $"{request.Year } - {request.Year + 1}";
+                var calculationYears = $"{request.Year} - {request.Year + 1}";
 
                 var response = new
                 {
@@ -145,7 +149,7 @@ namespace DatabaseMicroService.Controllers
                     AverageHourlySpotPrice = result.AverageHourlySpotPrice,
                     MonthlyData = result.MonthlyData,
 
-                   
+
                 };
 
                 var options = new JsonSerializerOptions
