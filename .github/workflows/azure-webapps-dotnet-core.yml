@@ -43,8 +43,12 @@ jobs:
       - name: Set PATH for dotnet tools
         run: echo "${{ runner.tool_cache }}/dotnet-tools" >> $GITHUB_PATH
 
+      - name: Restore EF Tools
+        run: dotnet tool restore
+        working-directory: ./DatabaseMicroService
+
       - name: Build Bundle
-        run: dotnet ef migrations bundle --self-contained --force
+        run: dotnet tool run dotnet-ef migrations bundle --self-contained --force
         working-directory: ./DatabaseMicroService
 
             #  - name: Run Migrations
