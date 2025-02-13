@@ -47,10 +47,9 @@ jobs:
         run: dotnet ef migrations bundle --self-contained --force
         working-directory: ./DatabaseMicroService
 
-    #  - name: Run Migrations
+            #  - name: Run Migrations
     #    run: pwsh -Command "./efbundle --connection '${{ secrets.CONNECTION_STRING }}'"
      #   working-directory: ./DatabaseMicroService
-
 
       - name: Build with dotnet
         run: dotnet build --configuration Release --output .\build\
@@ -65,7 +64,7 @@ jobs:
         shell: pwsh
 
       - name: Upload artifact for deployment job
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: .net-app
           path: ${{ github.workspace }}/myapp
@@ -81,7 +80,7 @@ jobs:
 
     steps:
       - name: Download artifact from build job
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: .net-app
           path: ${{ github.workspace }}/myapp
