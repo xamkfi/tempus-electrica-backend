@@ -14,6 +14,12 @@ namespace Infrastructure.Data
         {
             base.OnModelCreating(modelBuilder);
 
+            modelBuilder.Entity<ElectricityPriceData>(entity =>
+            {
+                entity.Property(e => e.Price)
+                      .HasPrecision(18, 2); // Set precision and scale
+            });
+
             // Define indexes on StartDate and EndDate
             modelBuilder.Entity<ElectricityPriceData>()
                         .HasIndex(e => e.StartDate)
