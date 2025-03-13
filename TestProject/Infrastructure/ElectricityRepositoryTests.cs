@@ -144,7 +144,7 @@ namespace TestProject.Infrastructure
         string secondStartDate, string secondEndDate,
         string thirdStartDate, string thirdEndDate)
         {
-
+            // Arrange
             var options = new DbContextOptionsBuilder<ElectricityDbContext>()
                         .UseInMemoryDatabase(databaseName: "NoDuplicatedDB")
                         .Options;
@@ -221,7 +221,7 @@ namespace TestProject.Infrastructure
                 await context.ElectricityPriceDatas.AddRangeAsync(testData);
                 await context.SaveChangesAsync();
 
-
+                //Act
                 var repository = new ElectricityRepository(context, loggerMock.Object, cache);
 
                 // First fetch
@@ -257,6 +257,7 @@ namespace TestProject.Infrastructure
                 }
                 var lastFetchCount = cachedElectricityData.Count();
 
+                //Assert
                 //there are only 24 hours in a day, if duplicates exist, then value should be above 24
                 Assert.InRange(lastFetchCount, 0, 24);
             }
