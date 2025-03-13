@@ -95,59 +95,95 @@ namespace Infrastructure.Repositories
 
         public async Task<IEnumerable<ElectricityPriceData>> GetPricesForPeriodAsync(DateTime startDate, DateTime endDate)
         {
-            // List to accumulate cached data
-            var cachedDataList = new List<ElectricityPriceData>();
-            bool isCompleteDataFromCache = true;
+            // Initial validation
+            if (startDate > endDate)
+            {
+                _logger.LogError($"Invalid date range: StartDate ({startDate}) is after EndDate ({endDate})");
+                return Enumerable.Empty<ElectricityPriceData>();
+            }
+            else if (startDate == endDate)
+            {
 
-            // Retrieve the list of cached ranges
+                endDate = endDate.AddHours(23).AddMinutes(59).AddSeconds(59);
+            }
+
             var cachedRanges = _cache.Get<List<(DateTime CacheStartDate, DateTime CacheEndDate, string CacheKey)>>("CachedRanges")
                                 ?? new List<(DateTime, DateTime, string)>();
-
+            var result = new List<ElectricityPriceData>();
+            var datesToFetch = new List<(DateTime start, DateTime end)> { (startDate, endDate) };
+            
+            //add missing dates and remove overlapping dates
             foreach (var range in cachedRanges)
             {
-                if (startDate >= range.CacheStartDate && endDate <= range.CacheEndDate)
+                if (_cache.TryGetValue(range.CacheKey, out IEnumerable<ElectricityPriceData>? cachedData) && cachedData != null)
                 {
-                    if (_cache.TryGetValue(range.CacheKey, out IEnumerable<ElectricityPriceData>? cachedData))
+                    var overlappingRanges = datesToFetch.ToList();
+                    foreach (var dateRange in overlappingRanges)
                     {
-                        if (cachedData != null)
+                        if (range.CacheStartDate <= dateRange.end && range.CacheEndDate >= dateRange.start)
                         {
-                            cachedDataList.AddRange(cachedData.Where(epd => epd.StartDate >= startDate && epd.EndDate <= endDate));
+                            result.AddRange(cachedData.Where(epd =>
+                                epd.StartDate >= dateRange.start &&
+                                epd.EndDate <= dateRange.end));
+
+                            datesToFetch.Remove(dateRange);
+
+                            // Validate date ranges before adding them
+                            if (dateRange.start < range.CacheStartDate)
+                            {
+                                var newStart = dateRange.start;
+                                var newEnd = range.CacheStartDate.AddDays(-1);
+                                if (newStart <= newEnd) // Add validation here
+                                {
+                                    datesToFetch.Add((newStart, newEnd));
+                                }
+                            }
+                            if (dateRange.end > range.CacheEndDate)
+                            {
+                                var newStart = range.CacheEndDate.AddDays(1);
+                                var newEnd = dateRange.end;
+                                if (newStart <= newEnd) // Add validation here
+                                {
+                                    datesToFetch.Add((newStart, newEnd));
+                                }
+                            }
                         }
                     }
                 }
-                else
+            }
+
+            if (result.Any())
+            {
+                _logger.LogInformation("Found cached data for period");
+            }
+            // Fetch missing data for dates
+            foreach (var dateRange in datesToFetch)
+            {
+                // Additional validation before fetching
+                if (dateRange.start > dateRange.end)
                 {
-                    isCompleteDataFromCache = false;
+                    _logger.LogError($"Skipping invalid date range: StartDate ({dateRange.start}) is after EndDate ({dateRange.end})");
+                    continue;
                 }
-            }
 
-            if (!isCompleteDataFromCache || !cachedDataList.Any())
-            {
-                _logger.LogInformation($"Cache miss. Fetching electricity prices for the period: StartDate = {startDate}, EndDate = {endDate}");
-
-                // Fetch data from the database for the missing period
+                _logger.LogInformation($"Fetching missing data for period: StartDate = {dateRange.start}, EndDate = {dateRange.end}");
                 var dbData = await _context.ElectricityPriceDatas
-                                           .Where(epd => epd.StartDate >= startDate && epd.EndDate <= endDate)
+                                           .Where(epd => epd.StartDate >= dateRange.start && epd.EndDate <= dateRange.end)
                                            .ToListAsync();
+                result.AddRange(dbData);
 
-                cachedDataList.AddRange(dbData);
-
-                // Cache the new data range
-                string newCacheKey = $"GetPricesForPeriod_{startDate:yyyyMMdd}_{endDate:yyyyMMdd}";
+                string newCacheKey = $"GetPricesForPeriod_{dateRange.start:yyyyMMdd}_{dateRange.end:yyyyMMdd}";
                 var cacheOptions = new MemoryCacheEntryOptions().SetSlidingExpiration(TimeSpan.FromMinutes(30));
-
                 _cache.Set(newCacheKey, dbData, cacheOptions);
-
-                // Update the cached ranges list
-                cachedRanges.Add((startDate, endDate, newCacheKey));
-                _cache.Set("CachedRanges", cachedRanges, cacheOptions);
+                cachedRanges.Add((dateRange.start, dateRange.end, newCacheKey));
             }
-            else
+
+            if (datesToFetch.Any())
             {
-                _logger.LogInformation($"Cache hit. Returning cached electricity prices for the period: StartDate = {startDate}, EndDate = {endDate}");
+                _cache.Set("CachedRanges", cachedRanges, new MemoryCacheEntryOptions().SetSlidingExpiration(TimeSpan.FromMinutes(30)));
             }
-
-            return cachedDataList;
+            //API thought dates should be out of order for ungodly reasons
+            return result.OrderBy(x => x.StartDate);
         }
     }
 }

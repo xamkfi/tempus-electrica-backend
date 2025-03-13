@@ -24,12 +24,6 @@ namespace ApplicationLayer.Services
             {
                 IEnumerable<ElectricityPriceData> prices = await _electricityRepository.GetPricesForPeriodAsync(startDate, endDate);
 
-                foreach (ElectricityPriceData price in prices)
-                {
-                    _logger.LogInformation("Retrieved price data: Start Date: {StartDate}, End Date: {EndDate}, Price: {Price}",
-                        price.StartDate, price.EndDate, price.Price);
-                }
-
                 _logger.LogInformation("Electricity prices retrieved successfully for period: {StartDate} - {EndDate}.", startDate, endDate);
                 return prices;
             }
