@@ -15,141 +15,159 @@ The project leverages extension methods for mapping between DTOs and domain enti
 
 ---
 
-## Table of Contents
-1. [Project Structure](#project-structure)
-2. [Installation](#installation)
-3. [Usage](#usage)
-4. [Architecture](#architecture)
-5. [Testing](#testing)
-6. [Future Improvements](#future-improvements)
-
----
-
-## Project Structure
-
-The project follows a layered architecture, ensuring separation of concerns and clean organization. Below is an overview of key directories:
-
-```bash
-.
-├── ApplicationLayer
-│   ├── Dto
-│   ├── Extensions
-│   ├── Interfaces
-├── Domain
-│   ├── Entities
-├── Infrastructure
-│   ├── Repositories
-├── TestProject
-│   ├── Application
-└── DatabaseMicroService.sln
-```
-
----
-
-## Installation
+## Getting Started
 
 ### Prerequisites
-- .NET SDK 8.0 or higher
-- Visual Studio 2022 or another C# compatible IDE
-- NuGet packages: Ensure required NuGet packages (e.g., FluentValidation, Moq) are installed.
+- **.NET 8.0 SDK** or higher
+- **SQL Server** (localdb or your own instance)
+- **Visual Studio 2022** or another C# compatible IDE
+- (Optional) **Azure Key Vault** for production secrets
 
-### Setup Instructions
-
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/your-repo/tempus-electrica-backend.git
-   ```
-
-2. Navigate to the project directory:
-   ```bash
-   cd tempus-electrica-backend
-   ```
-
-3. Restore the dependencies:
-   ```bash
-   dotnet restore
-   ```
-
-4. Build the solution:
-   ```bash
-   dotnet build
-   ```
-
-5. Run the project:
-   ```bash
-   dotnet run
-   ```
-
----
-
-## Usage
-
-### Key Services:
-- **ElectricityService**:
-   - Adds electricity prices from DTOs to the database using repository methods.
-   - Maps PriceInfo DTOs to ElectricityPriceData domain entities via extension methods.
-
-- **ICalculateFingridConsumptionPrice**:
-   - Provides a service for calculating total electricity consumption prices.
-   - Returns a structured result using the `ConsumptionPriceResultDto`.
-
-### Example Code Usage:
-```csharp
-var electricityPriceDataDtoIn = new ElectricityPriceDataDtoIn
-{
-    Prices = new List<PriceInfo>
-    {
-        new PriceInfo { StartDate = DateTime.Now.AddHours(-1), EndDate = DateTime.Now, Price = 10m }
-    }
-};
-
-// Use ElectricityService to add electricity prices
-await _electricityService.AddElectricityPricesAsync(electricityPriceDataDtoIn);
+### Clone the Repository
+```bash
+git clone https://github.com/your-repo/tempus-electrica-backend.git
+cd tempus-electrica-backend
 ```
 
+### Configuration
+
+#### Local Development
+- The default connection string uses `(localdb)\MSSQLLocalDB` and is set in `DatabaseMicroService/appsettings.json`:
+  ```json
+  "ConnectionStrings": {
+    "ElectricityPriceDataContext": "Data Source=(localdb)\\MSSQLLocalDB;Initial Catalog=master;Integrated Security=True;..."
+  }
+  ```
+- You can override this by editing `appsettings.json` or using [User Secrets](https://learn.microsoft.com/en-us/aspnet/core/security/app-secrets).
+- For production, secrets (like the DB connection string) are expected from Azure Key Vault.
+
+#### Other Settings
+- `HealthChecks.ElectricityService.Url` should be set to your deployed API address if using health checks.
+- `ServiceUrls.SpotPriceUrl` is the external API for spot prices.
+
+### Install Dependencies
+Restore all NuGet packages:
+```bash
+dotnet restore
+```
+
+### Build the Solution
+```bash
+dotnet build
+```
+
+### Database Setup
+- Ensure your SQL Server is running and accessible.
+- If using migrations, you may need to create and update the database:
+  ```bash
+  dotnet ef database update --project DatabaseMicroService
+  ```
+
+### Running the Service
+From the root directory:
+```bash
+dotnet run --project DatabaseMicroService
+```
+- By default, the API will be available at `https://localhost:7122` and `http://localhost:5128` (see `launchSettings.json`).
+- Swagger UI is enabled in development at `/swagger`.
+
 ---
 
-## Architecture
+## API Usage
 
-The project uses a layered architecture:
+### Endpoints
 
-- **Application Layer**: Contains business logic and DTOs for data transfer between layers.
-- **Domain Layer**: Contains core entities, such as `ElectricityPriceData`.
-- **Infrastructure Layer**: Handles persistence through repositories, abstracted by interfaces.
+#### 1. Get Electricity Prices for a Period
+- **GET** `/api/ElectricityPriceData/GetPricesForPeriod?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD`
+- **Description:** Returns electricity prices for the specified date range.
+- **Query Parameters:**
+  - `startDate` (required): Start date (ISO format)
+  - `endDate` (required): End date (ISO format)
+- **Response:** `200 OK` with a list of price data.
 
-The mapping between DTOs and domain entities is handled via extension methods (`ElectricityPriceDataExtensions`), ensuring that the conversion logic remains clean and reusable.
+#### 2. Upload Fingrid Consumption File
+- **POST** `/api/ElectricityPriceData/UploadFinGridConsumptionFile?fixedPrice=VALUE[&marginal=VALUE]`
+- **Description:** Upload a CSV file with consumption data and calculate total prices.
+- **Form Data:**
+  - `file`: CSV file (required)
+- **Query Parameters:**
+  - `fixedPrice` (required): Fixed price per kWh
+  - `marginal` (optional): Marginal cost
+- **Response:** `200 OK` with a summary object:
+  ```json
+  {
+    "totalSpotPrice": 123.45,
+    "totalFixedPrice": 120.00,
+    "totalConsumption": 1000.0,
+    "monthlyData": { "(5,2024)": { ... } },
+    "weeklyData": { "(18,2024)": { ... } },
+    "dailyData": { "2024-05-01": { ... } }
+  }
+  ```
+
+#### 3. Calculate Price and Consumption
+- **POST** `/api/ElectricityPriceData/CalculatePriceAndConsumption`
+- **Description:** Calculates price and consumption based on user input.
+- **Query Parameters:** All fields of `CombinedRequestDtoIn` (see below)
+- **Example:**
+  ```bash
+  curl -X POST "https://localhost:7122/api/ElectricityPriceData/CalculatePriceAndConsumption?Year=2024&FixedPrice=0.12&HouseType=ApartmentHouse&SquareMeters=80&WorkShiftType=DayWorker&HeatingType=ElectricHeating&HasElectricCar=false&HasSauna=true&SaunaHeatingFrequency=2&HasFireplace=false&NumberOfResidents=2&HasSolarPanel=false&HasFloorHeating=false"
+  ```
+- **Required Fields:**
+  - `Year` (int)
+  - `FixedPrice` (decimal)
+  - `HouseType` (ApartmentHouse, TerracedHouse, DetachedHouse, Cottage)
+  - `SquareMeters` (decimal)
+  - `WorkShiftType` (DayWorker, ShiftWorker, RemoteWorker)
+  - `HeatingType` (ElectricHeating, DistrictHeating, GeothermalHeating, OilHeating)
+  - `HasElectricCar` (bool)
+  - `HasSauna` (bool)
+  - `SaunaHeatingFrequency` (int, required if HasSauna)
+  - `HasFireplace` (bool)
+  - `FireplaceFrequency` (int, required if HasFireplace)
+  - `NumberOfResidents` (int)
+  - `HasSolarPanel` (bool)
+  - `SolarPanel` (int, required if HasSolarPanel)
+  - `HasFloorHeating` (bool)
+  - `FloorSquareMeters` (decimal, required if HasFloorHeating)
+- **Response:** `200 OK` with a summary object:
+  ```json
+  {
+    "TotalFixedPriceCost": 120.00,
+    "TotalSpotPriceCost": 123.45,
+    "TotalDirectiveConsumption": 1000.0,
+    "EstimatedMinConsumption": 900.0,
+    "EstimatedMaxConsumption": 1100.0,
+    "MinFixedPriceCost": 100.0,
+    "MaxFixedPriceCost": 140.0,
+    "MinSpotPriceCost": 105.0,
+    "MaxSpotPriceCost": 145.0,
+    "CalculationYears": "2024 - 2025",
+    "CheaperOption": "Fixed",
+    "CostDifference": 3.45,
+    "AverageHourlySpotPrice": 0.13,
+    "MonthlyData": [ ... ]
+  }
+  ```
 
 ---
 
 ## Testing
 
-### Running Tests:
-Unit tests are written using the xUnit framework and Moq for mocking dependencies.
-
-To run the tests, execute the following command:
-
+Unit tests are written using xUnit and Moq. To run all tests:
 ```bash
 dotnet test
 ```
-
-Tests can be found in the `TestProject` directory.
-
----
-
-## Future Improvements
-
-- **FluentValidation Integration**: Simplify DTO validation by integrating FluentValidation to handle validation rules outside the DTO classes.
-- **Automated Background Jobs**: Implement recurring jobs for fetching and storing electricity prices using tools like Hangfire or Quartz.NET.
-- **Performance Improvements**: Optimize data retrieval by implementing pagination and caching in repository methods.
+Tests are located in the `TestProject` directory.
 
 ---
 
 ## Contributing
 
-Feel free to fork the repository and submit pull requests. We welcome all contributions that improve the project!
+Contributions are welcome! Please fork the repository and submit a pull request.
 
 ---
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the MIT License. See the LICENSE file for details.
